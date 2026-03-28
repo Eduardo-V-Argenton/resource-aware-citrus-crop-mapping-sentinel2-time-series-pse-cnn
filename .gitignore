@@ -212,3 +212,4 @@ dataset/Tensores_Treino
 dataset/dataset_index.csv
 eda/area_plantada.csv
 *.pth
+*.npy
