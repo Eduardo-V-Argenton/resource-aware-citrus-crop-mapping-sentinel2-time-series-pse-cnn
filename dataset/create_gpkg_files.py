@@ -20,7 +20,6 @@ ficheiro_municipios = 'dataset/SP_MUN_2024/SP_Municipios_2024.shp'
 os.makedirs(output_dir, exist_ok=True)
 
 area_minima_ha = 8.0
-distancia_uniao_metros = 20
 
 # Tamanho do bloco do Grid (2000 pixels = ~60x60 km no MapBiomas)
 TAMANHO_BLOCO = 2000 
@@ -32,7 +31,8 @@ classes_interesse = {
     15: 0, # Pastagem
     9:  0, # Silvicultura
     39: 0, # Soja
-    3:  0  # Formação Florestal
+    3:  0,  # Formação Florestal
+    11: 0 # Campo Alagado e Área Pantanosa
 }
 
 cidades_alvo = [
@@ -44,30 +44,29 @@ cidades_alvo = [
 # =====================================================================
 # 2. PREPARAÇÃO DO MAPA DA ÁREA DE ESTUDO (POLO LESTE)
 # =====================================================================
-print("-> Carregando o mapa de municípios do IBGE e isolando")
+print("-> Carregando o mapa de municípios do IBGE e isolando a região alvo...")
 gdf_mun = gpd.read_file(ficheiro_municipios)
 gdf_mun_filtrado = gdf_mun[gdf_mun['NM_MUN'].isin(cidades_alvo)].copy()
 
-# Projetamos para a mesma malha métrica das fazendas para o cruzamento ser instantâneo
+# Projetamos para a malha métrica (Equal Area) para o cruzamento ser perfeito
 gdf_mun_filtrado = gdf_mun_filtrado.to_crs(epsg=6933)
-
 mascara_regiao_alvo = gdf_mun_filtrado.geometry.unary_union
 
 # =====================================================================
-# 3. FUNÇÃO DE EXTRAÇÃO 
+# 3. FUNÇÃO DE EXTRAÇÃO (APENAS BRUTA, SEM FILTRO DE ÁREA AQUI)
 # =====================================================================
-def extrair_e_limpar_poligonos(imagem_bloco, transform_bloco, crs_original, classe_alvo, label_ia):
-    # 1. Cria a máscara booleana bruta da classe
+def extrair_poligonos_brutos(imagem_bloco, transform_bloco, crs_original, classe_alvo, label_ia):
+    # Cria a máscara booleana da classe
     mascara = (imagem_bloco == classe_alvo)
     
     if not mascara.any():
         return None
         
-    # Morfologia Matemática na Matriz (Super Rápido)
+    # Morfologia Matemática (Remove pequenos buracos/ruídos na imagem)
     estrutura = np.ones((3, 3), dtype=int)
     mascara_limpa = binary_closing(mascara, structure=estrutura)
     
-    # 2. Transforma em vetor JÁ LIMPO E UNIDO 
+    # Transforma em vetor
     gerador_poligonos = shapes(mascara_limpa.astype('uint8'), mask=mascara_limpa, transform=transform_bloco)
     
     features = [{'geometry': geom, 'properties': {'mapbiomas_class': classe_alvo, 'label': label_ia}} 
@@ -76,31 +75,17 @@ def extrair_e_limpar_poligonos(imagem_bloco, transform_bloco, crs_original, clas
     if not features:
         return None
         
-    # 3. GeoPandas: Cálculo de área e filtro
-    gdf = gpd.GeoDataFrame.from_features(features, crs=crs_original)
-    
-    # Projeta para metros para calcular a área real
-    gdf_metric = gdf.to_crs(epsg=6933)
-    gdf_metric['area_ha'] = gdf_metric.geometry.area / 10000.0
-    
-    # Filtra por tamanho
-    gdf_filtrado = gdf_metric[gdf_metric['area_ha'] >= area_minima_ha].copy()
-    
-    if gdf_filtrado.empty:
-        return None
-        
-    # Simplifica a geometria para deixar o arquivo final leve
-    gdf_filtrado['geometry'] = gdf_filtrado.geometry.simplify(tolerance=15, preserve_topology=True)
-    
-    return gdf_filtrado
+    # Retorna o GeoDataFrame cru, sem simplificar nem calcular área ainda
+    return gpd.GeoDataFrame.from_features(features, crs=crs_original)
 
 # =====================================================================
-# 4. LOOP PRINCIPAL COM GRIDDING E FILTRO ESPACIAL
+# 4. LOOP PRINCIPAL COM GRIDDING E COSTURA GEOMÉTRICA
 # =====================================================================
 files = [f for f in os.listdir(base_dir) if f.endswith('.tif')]
-print(files)
+print(f"Arquivos encontrados: {files}")
+
 for file in files:
-    print(f"\n{'='*60}")
+    print(f"\n{'='*70}")
     print(f"Processando Ano/Arquivo: {file}")
     
     try:
@@ -109,9 +94,9 @@ for file in files:
             largura_total = src.width
             altura_total = src.height
             
-            gdfs_do_ano = [] # Vai guardar os resultados da área de estudo
+            lista_todos_poligonos_estado = []
             
-            # Navegando pela Malha (Grid)
+            print(" -> Varrendo a malha e extraindo geometria bruta...")
             for row in range(0, altura_total, TAMANHO_BLOCO):
                 for col in range(0, largura_total, TAMANHO_BLOCO):
                     
@@ -122,90 +107,128 @@ for file in files:
                     transform_janela = rasterio.windows.transform(janela, src.transform)
                     
                     imagem_bloco = src.read(1, window=janela)
-                    lista_gdfs_bloco = []
                     
-                    # Passo A: Extrai todas as classes do Bloco
                     for classe_alvo, label_ia in classes_interesse.items():
-                        gdf_classe = extrair_e_limpar_poligonos(imagem_bloco, transform_janela, crs_original, classe_alvo, label_ia)
+                        gdf_classe = extrair_poligonos_brutos(imagem_bloco, transform_janela, crs_original, classe_alvo, label_ia)
                         if gdf_classe is not None:
-                            lista_gdfs_bloco.append(gdf_classe)
-                    
-                    if not lista_gdfs_bloco:
-                        continue 
-                        
-                    gdf_mesclado_bloco = gpd.GeoDataFrame(pd.concat(lista_gdfs_bloco, ignore_index=True), crs=6933)
-                    
-                    # =================================================================
-                    # A REGRA DOS 80%: FILTRO INTELIGENTE DE BORDAS
-                    # =================================================================
-                    # 1. Anota o tamanho original perfeito do polígono
-                    gdf_mesclado_bloco['area_original'] = gdf_mesclado_bloco.geometry.area
-                    
-                    # 2. Calcula matematicamente o "pedaço" do polígono que está dentro da máscara das 17 cidades
-                    pedacos_dentro = gdf_mesclado_bloco.geometry.intersection(mascara_regiao_alvo)
-                    
-                    # 3. Qual foi a porcentagem que ficou lá dentro?
-                    porcentagem_dentro = pedacos_dentro.area / gdf_mesclado_bloco['area_original']
-                    
-                    # 4. Mantém o polígono ORIGINAL (intacto, sem cortes), SÓ SE 80% ou mais dele estiver na nossa região
-                    gdf_mesclado_bloco = gdf_mesclado_bloco[porcentagem_dentro >= 0.80].copy()
-                    
-                    if gdf_mesclado_bloco.empty:
-                        # Nenhum polígono atendeu à regra neste bloco. Ignora e pula!
-                        continue
-                    
-                    # Passo B: Balanceamento Ultra-Local Focado
-                    positivos = gdf_mesclado_bloco[gdf_mesclado_bloco['label'] == 1]
-                    negativos = gdf_mesclado_bloco[gdf_mesclado_bloco['label'] == 0]
-                    
-                    qtd_positivos = len(positivos)
-                    qtd_negativos_total = len(negativos)
-                    
-                    # Só balanceamos se tiver Laranja DENTRO das 17 cidades neste bloco
-                    if qtd_positivos == 0:
-                        continue
-                    
-                    if qtd_negativos_total == 0:
-                        gdf_balanceado = positivos
-                    else:
-                        # A proporção real agora reflete EXATAMENTE a dinâmica da região!
-                        proporcoes_reais = negativos['mapbiomas_class'].value_counts(normalize=True)
-                        negativos_selecionados = []
-                        
-                        for classe_mapbiomas, proporcao in proporcoes_reais.items():
-                            quantidade_necessaria = int(round(qtd_positivos * proporcao))
-                            filtro_classe = negativos[negativos['mapbiomas_class'] == classe_mapbiomas]
-                            
-                            if quantidade_necessaria > 0:
-                                amostra = filtro_classe.sample(n=min(len(filtro_classe), quantidade_necessaria), random_state=42)
-                                negativos_selecionados.append(amostra)
-                        
-                        if negativos_selecionados:
-                            negativos_balanceados = pd.concat(negativos_selecionados, ignore_index=True)
-                            gdf_balanceado = gpd.GeoDataFrame(
-                                pd.concat([positivos, negativos_balanceados], ignore_index=True), 
-                                crs=6933
-                            )
-                        else:
-                            gdf_balanceado = positivos
-                            
-                    gdfs_do_ano.append(gdf_balanceado)
-                    print(f"   -> Bloco Polo Leste processado. Polígonos extraídos: {len(gdf_balanceado)}")
+                            lista_todos_poligonos_estado.append(gdf_classe)
+            
+            if not lista_todos_poligonos_estado:
+                print(" -> Nenhuma geometria encontrada no estado inteiro. Pulando...")
+                continue 
+                
+            # Junta todos os pedaços extraídos do estado de SP
+            gdf_estado_bruto = gpd.GeoDataFrame(pd.concat(lista_todos_poligonos_estado, ignore_index=True), crs=crs_original)
+            
+            # Projeta para metros para iniciar a matemática espacial
+            gdf_estado_bruto = gdf_estado_bruto.to_crs(epsg=6933)
+            
+            # =================================================================
+            # PENEIRA 1: SJOIN (FILTRO RÁPIDO PARA DESCARTAR O RESTO DO ESTADO)
+            # =================================================================
+            print(" -> Filtrando apenas fazendas do Polo Leste (Spatial Join Rápido)...")
+            gdf_polo = gpd.sjoin(gdf_estado_bruto, gdf_mun_filtrado[['NM_MUN', 'geometry']], how="inner", predicate="intersects")
+            
+            if gdf_polo.empty:
+                print(" -> Nenhum polígono tocou as cidades alvo. Pulando...")
+                continue
 
             # =================================================================
-            # 5. SALVAR O ANO INTEIRO FOCADO NA REGIÃO
+            # 3. COSTURAR AS FAZENDAS (RESOLVENDO A GUILHOTINA)
             # =================================================================
-            if gdfs_do_ano:
-                print(f"\n-> Mesclando e salvando dados do Polo Leste para o ano...")
-                gdf_estado = gpd.GeoDataFrame(pd.concat(gdfs_do_ano, ignore_index=True), crs=6933)
+            print(" -> Costurando polígonos que foram cortados pela malha do Grid...")
+            gdf_polo['geometry'] = gdf_polo.geometry.buffer(0.1) 
+            
+            # Dissolve apenas pelas classes. A coluna NM_MUN será removida aqui para evitar conflitos
+            gdf_costurado = gdf_polo.dissolve(by=['mapbiomas_class', 'label']).explode(index_parts=False).reset_index()
+            
+            gdf_costurado['geometry'] = gdf_costurado.geometry.buffer(-0.1) 
+            
+            # =================================================================
+            # 4. FILTRO DE ÁREA E REGRA DOS 80%
+            # =================================================================
+            print(" -> Aplicando filtro de área mínima (8.0 ha)...")
+            gdf_costurado['area_ha'] = gdf_costurado.geometry.area / 10000.0
+            gdf_costurado = gdf_costurado[gdf_costurado['area_ha'] >= area_minima_ha].copy()
+            
+            if gdf_costurado.empty:
+                print(" -> Nenhum polígono sobreviveu ao filtro de área.")
+                continue
                 
-                # Volta para Latitude/Longitude (WGS84) para compatibilidade com AWS
-                gdf_final = gdf_estado.to_crs(epsg=4326)
-                nome_saida = file.replace('.tif', '_polo_leste.gpkg')
+            print(" -> Calculando a Regra dos 80% de Intersecção...")
+            gdf_costurado['area_original'] = gdf_costurado.geometry.area
+            pedacos_dentro = gdf_costurado.geometry.intersection(mascara_regiao_alvo)
+            porcentagem_dentro = pedacos_dentro.area / gdf_costurado['area_original']
+            
+            gdf_valido = gdf_costurado[porcentagem_dentro >= 0.80].copy()
+            
+            # =================================================================
+            # 4.5. UNDERSAMPLING ESTRATIFICADO (O "HACK" DO DISCO RÍGIDO)
+            # =================================================================
+            if not gdf_valido.empty:
+                print(" -> Aplicando Amostragem Estratificada (Proporção 1:4)...")
+                
+                # Separa a minoria (Laranja) da maioria (Salada de Culturas)
+                gdf_citrus = gdf_valido[gdf_valido['label'] == 1].copy()
+                gdf_outros = gdf_valido[gdf_valido['label'] == 0].copy()
+                
+                qtd_citrus = len(gdf_citrus)
+                
+                if qtd_citrus > 0:
+                    # Limite de 4 Outros para cada 1 Citrus
+                    qtd_outros_desejada = qtd_citrus * 4 
+                    
+                    if len(gdf_outros) > qtd_outros_desejada:
+                        # Corta a classe 0 de forma proporcional para manter a diversidade do fundo
+                        fracao = qtd_outros_desejada / len(gdf_outros)
+                        gdf_outros_reduzido = gdf_outros.groupby(['mapbiomas_class', 'NM_MUN'], group_keys=False).apply(
+                            lambda x: x.sample(frac=fracao, random_state=42) if len(x) > 0 else x
+                        )
+                        # Une tudo novamente
+                        gdf_valido = gpd.GeoDataFrame(pd.concat([gdf_citrus, gdf_outros_reduzido], ignore_index=True), crs=gdf_costurado.crs)
+                        print(f"    [!] Reduzido de {len(gdf_outros)} para {len(gdf_outros_reduzido)} polígonos de fundo.")
+                else:
+                    # Se num ano/bloco não houver Laranja, retemos apenas um limite de fundo para não perder a referência do ano
+                    if len(gdf_outros) > 500:
+                        gdf_valido = gdf_outros.sample(n=500, random_state=42)
+                        print(f"    [!] Sem Citrus. Fundo limitado a 500 polígonos.")
+
+            # =================================================================
+            # 5. SALVAR O GPKG (AGORA LEVE E BALANCEADO EM 1:4)
+            # =================================================================
+            if not gdf_valido.empty:
+                print(f" -> Recuperando nomes das cidades e salvando (Total: {len(gdf_valido)} polígonos)...")
+                
+                colunas_preservar = ['mapbiomas_class', 'label', 'area_ha', 'geometry']
+                gdf_limpo = gdf_valido[colunas_preservar].copy()
+                
+                # 2. SJOIN FINAL: Para carimbar a cidade na fazenda costurada
+                gdf_final_com_cidade = gpd.sjoin(
+                    gdf_limpo, 
+                    gdf_mun_filtrado[['NM_MUN', 'geometry']], 
+                    how="left", 
+                    predicate="intersects"
+                )
+                
+                # 3. TRATAMENTO DE DUPLICATAS: Se uma fazenda toca duas cidades, pegamos a primeira
+                gdf_final_com_cidade = gdf_final_com_cidade.drop_duplicates(subset='geometry')
+                
+                # 4. CONVERSÃO E SIMPLIFICAÇÃO
+                gdf_final = gdf_final_com_cidade.to_crs(epsg=4326)
+                
+                # Simplificação leve para o arquivo não ficar gigante (usando graus decimais agora)
+                gdf_final['geometry'] = gdf_final.geometry.simplify(tolerance=0.0001, preserve_topology=True)
+                
+                # 5. FILTRO FINAL DE COLUNAS (Com verificação de segurança)
+                colunas_finais = ['mapbiomas_class', 'label', 'area_ha', 'NM_MUN', 'geometry']
+                
+                gdf_final = gdf_final[colunas_finais]
+                
+                nome_saida = file.replace('.tif', '.gpkg')
                 gdf_final.to_file(f"{output_dir}{nome_saida}", driver="GPKG")
-                print(f"-> SUCESSO! Arquivo regional salvo: {nome_saida} (Total: {len(gdf_final)} polígonos)")
+                print(f" -> SUCESSO! Arquivo salvo: {nome_saida}")
             else:
-                print("-> Nenhuma cultura de interesse encontrada na Área de Estudo para este ano.")
+                print(" -> Nenhum polígono sobreviveu à Regra dos 80%.")
                 
     except Exception as e:
         print(f"Erro ao processar {file}: {e}")

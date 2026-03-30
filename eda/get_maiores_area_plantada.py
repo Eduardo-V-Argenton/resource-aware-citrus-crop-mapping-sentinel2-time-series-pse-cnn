@@ -9,12 +9,13 @@ df_raw = pd.read_csv(
     skiprows=4,
     header=None
 )
+
 city_list = df_raw.iloc[1:643, 0].reset_index(drop=True)
 planted_area = df_raw.iloc[1:643, 1:].reset_index(drop=True)
 planted_area.replace(['...', '-'], [None, 0], inplace=True)
 planted_area = planted_area.apply(pd.to_numeric, errors='coerce').fillna(0)
 
-years = list(range(2017, 2025))
+years = list(range(2019, 2025))
 rows = {}
 
 for city_idx, city in enumerate(city_list):
@@ -25,4 +26,4 @@ for city_idx, city in enumerate(city_list):
 
 df = pd.DataFrame(rows.items(), columns=["city", "value"])
 df = df.sort_values(by="value", ascending=False)
-print(df[df["value"] > 10000].head(100))
+print(df.head(25))
