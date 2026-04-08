@@ -35,6 +35,8 @@ os.makedirs(pasta_tensores, exist_ok=True)
 csv_lock = threading.Lock()
 
 cidades_alvo = [
+    'Aguaí', 'Águas da Prata', 'Casa Branca', 'Espírito Santo do Pinhal', 'Santa Cruz das Palmeiras',
+    'Santo Antônio do Jardim', 'São João da Boa Vista', 'Tambaú', 'Vargem Grande do Sul', 
     'Estiva Gerbi', 'Itapira', 'Mogi Guaçu', 'Mogi Mirim'
 ]
 
