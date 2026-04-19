@@ -19,7 +19,7 @@ warnings.filterwarnings("ignore")
 # =====================================================================
 # Configs
 # =====================================================================
-PROJECT_GEE = 'clean-bindery-462116-u8' 
+PROJECT_GEE = 'automatic-honor-493816-v0' 
 
 print("-> Connecting to Google Earth Engine...")
 try:
@@ -151,7 +151,7 @@ def download_gee(geom_geojson, year, part_name, max_tries=3):
             return tensor_10m, tensor_20m
 
         except Exception as e:
-            print(f"      [WARNING] Attempt {attempt+1}/3 to {part_name} failed: {str(e)[:50]}...")
+            print(f"      [WARNING] Attempt {attempt+1}/3 to {part_name} failed: {str(e)}...")
             time.sleep((2 ** attempt) + random.uniform(0, 1))
 
     return None, None
@@ -261,4 +261,4 @@ for year in range(2019, 2025):
                 else:
                     print(f"    [ERROR] Failed for {res['name']}.")
 
-    print(f"Resume {year}: {success} news, {skipped} already existed.")
+    print(f"Resume {year}: {success} new, {skipped} already existed.")
