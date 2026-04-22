@@ -4,8 +4,8 @@ import os
 from tqdm import tqdm
 
 # Configurações de caminho (iguais aos seus scripts)
-FICHEIRO_CSV = 'dataset/dataset_index.csv'
-PASTA_ORIGEM = 'dataset/Tensores_Treino/'
+FICHEIRO_CSV = '/mnt/SSD_SATA/dataset/dataset_index.csv'
+PASTA_ORIGEM = "/mnt/SSD_SATA/dataset/Tensores_Treino/"
 
 # Lê o CSV
 df_csv = pd.read_csv(FICHEIRO_CSV)
@@ -17,7 +17,7 @@ larguras = []
 print("Analisando as dimensões reais dos seus talhões. Isso será bem rápido...")
 
 for _, linha in tqdm(df_csv.iterrows(), total=len(df_csv), desc="Lendo shapes"):
-    nome_base = linha['nome_base']
+    nome_base = linha['name']
     caminho_10m = os.path.join(PASTA_ORIGEM, f"{nome_base}_10m.npy")
     
     if not os.path.exists(caminho_10m):
