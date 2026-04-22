@@ -15,7 +15,6 @@ from sklearn.metrics import (
 from sklearn.model_selection import GroupShuffleSplit
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
-from sklearn.cluster import DBSCAN
 
 torch.set_float32_matmul_precision('high')
 
@@ -203,12 +202,12 @@ ficheiros_existentes = set([
 
 df_index = df_index[df_index["name"].isin(ficheiros_existentes)].copy()
 
-anos_teste = [2023, 2022]
-seeds = [42, 43, 44]
+anos_teste = [2023]
+seeds = [43, 44, 45]
 
 BATCH_SIZE = 128
 EPOCHS = 100
-PATIENCE = 15 
+PATIENCE = 20 
 
 resultados_gerais = {}
 
@@ -216,7 +215,7 @@ for ano_teste in anos_teste:
     print(f"\n{'=' * 80}\n TESTE INÉDITO: ANO {ano_teste} \n{'=' * 80}")
 
     df_test_idx = df_index[df_index["ano"] == ano_teste].copy()
-    ano_val = ano_teste - 1
+    anos_val = [ano_teste - 1, ano_teste - 2]
     
     df_resto = df_index[~df_index["ano"].isin([ano_teste])].copy()
 
@@ -237,8 +236,8 @@ for ano_teste in anos_teste:
         df_train_pool = df_resto.iloc[train_idx].copy()
         df_val_pool = df_resto.iloc[val_idx].copy()
         
-        df_train = df_train_pool[df_train_pool["ano"] != ano_val].copy()
-        df_val = df_val_pool[df_val_pool["ano"] == ano_val].copy()
+        df_train = df_train_pool[~df_train_pool["ano"].isin(anos_val)].copy()
+        df_val = df_val_pool[df_val_pool["ano"].isin(anos_val)].copy()
         df_train = df_train.sample(frac=1.0, random_state=seed).reset_index(drop=True)
 
         train_dataset = PSEDataset(
@@ -266,9 +265,12 @@ for ano_teste in anos_teste:
 
         criterion = nn.BCEWithLogitsLoss(pos_weight=peso_citrus).to(device)
         
-        optimizer = optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-3)
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-6
+        optimizer = optim.RAdam(model.parameters(), lr=1e-4, weight_decay=1e-3)
+        scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
+            optimizer, 
+            T_0=15, 
+            T_mult=2, 
+            eta_min=1e-6
         )
 
         best_val_loss = float("inf")
@@ -324,7 +326,7 @@ for ano_teste in anos_teste:
                     val_loss += loss.item() * batch_x.size(0)
 
             val_epoch_loss = val_loss / len(val_loader.dataset)
-            scheduler.step(val_epoch_loss)
+            scheduler.step()
             
             # Salvando os dados no histórico
             historico_treino["epoca"].append(epoch + 1)
@@ -441,7 +443,7 @@ print("=" * 80)
 df_tabela = pd.DataFrame(resultados_gerais)
 df_tabela = df_tabela[sorted(df_tabela.columns)]
 
-culturas_ordenadas = sorted([c for c in df_index["cultura_real"].dropna().unique()])
+culturas_ordenadas = sorted([c for c in df_index["crop"].dropna().unique()])
 ordem_linhas = culturas_ordenadas + ["Recall 0", "Recall 1", "Precision 0", "Precision 1"]
 
 df_tabela = df_tabela.reindex(ordem_linhas)
