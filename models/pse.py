@@ -12,9 +12,10 @@ from sklearn.metrics import (
     precision_recall_curve,
     precision_recall_fscore_support,
 )
-from sklearn.model_selection import StratifiedGroupKFold
+from sklearn.model_selection import GroupShuffleSplit
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
+from sklearn.cluster import DBSCAN
 
 torch.set_float32_matmul_precision('high')
 
@@ -81,7 +82,7 @@ class PhenologyPSE(nn.Module):
     def __init__(self, in_channels=10): 
         super(PhenologyPSE, self).__init__()
 
-        self.input_norm = nn.BatchNorm1d(in_channels) 
+        self.input_norm = nn.LayerNorm(in_channels) 
         
         self.spatial_mlp1 = nn.Conv1d(in_channels, 32, kernel_size=1)
         self.spatial_bn1 = nn.BatchNorm1d(32)
@@ -101,15 +102,18 @@ class PhenologyPSE(nn.Module):
         )
 
         self.classifier = nn.Sequential(
-            nn.Dropout(0.4), nn.Linear(128, 32), nn.GELU(), nn.Linear(32, 1)
+            nn.Linear(128, 32), 
+            nn.GELU(), 
+            nn.Dropout(0.4), 
+            nn.Linear(32, 1)
         )
 
     def forward(self, x):
         B, T, C, S = x.size()
         
-        x = x.view(B * T, C, S)
-        
-        x = self.input_norm(x) 
+        x = x.permute(0, 1, 3, 2) # [B, T, S, C]
+        x = self.input_norm(x)
+        x = x.permute(0, 1, 3, 2).reshape(B * T, C, S)
                  
         x = F.gelu(self.spatial_bn1(self.spatial_mlp1(x)))
         x = F.gelu(self.spatial_bn2(self.spatial_mlp2(x)))
@@ -154,10 +158,42 @@ def prever(loader, tta_steps=5):
     return y_true_final.flatten(), probs_finais.flatten()
 
 
+def extrair_coordenadas(id_str):
+    # Assume o formato "loc_longitude_latitude"
+    partes = str(id_str).split('_')
+    if len(partes) >= 3:
+        return float(partes[1]), float(partes[2])
+    return np.nan, np.nan
+    
 # -------------------------------------------------------------------------
 # 3. O LOOP DO EXPERIMENTO
 # -------------------------------------------------------------------------
 df_index = pd.read_csv(FICHEIRO_INDEX)
+
+df_index['lon'], df_index['lat'] = zip(*df_index['id'].apply(extrair_coordenadas))
+RESOLUCAO_GRAUS = 0.02 
+
+# Arredondamos as coordenadas para "encaixar" os pontos nas caixas do grid
+df_index['lat_grid'] = np.floor(df_index['lat'] / RESOLUCAO_GRAUS) * RESOLUCAO_GRAUS
+df_index['lon_grid'] = np.floor(df_index['lon'] / RESOLUCAO_GRAUS) * RESOLUCAO_GRAUS
+
+# Criamos o ID do cluster combinando as coordenadas da caixa
+# Exemplo de saída: "grid_-21.50_-47.24"
+df_index['id_cluster'] = "grid_" + df_index['lat_grid'].astype(str) + "_" + df_index['lon_grid'].astype(str)
+
+# Limpeza opcional
+df_index = df_index.dropna(subset=['lat', 'lon']).copy()
+
+# ==========================================
+# NOVO RELATÓRIO DE IMPACTO
+# ==========================================
+total_original = df_index['id'].nunique()
+total_clusters = df_index['id_cluster'].nunique()
+reducao = (1 - (total_clusters / total_original)) * 100
+
+print(f"Total de IDs (Centroides) originais: {total_original}")
+print(f"Total de Macro-Fazendas (Grids de ~2km): {total_clusters}")
+print(f"Redução do espaço amostral de IDs: {reducao:.1f}%")
 
 print("Verificando a integridade física dos tensores PSE...")
 ficheiros_existentes = set([
@@ -180,7 +216,9 @@ for ano_teste in anos_teste:
     print(f"\n{'=' * 80}\n TESTE INÉDITO: ANO {ano_teste} \n{'=' * 80}")
 
     df_test_idx = df_index[df_index["ano"] == ano_teste].copy()
-    df_resto_idx = df_index[df_index["ano"] != ano_teste].copy()
+    ano_val = ano_teste - 1
+    
+    df_resto = df_index[~df_index["ano"].isin([ano_teste])].copy()
 
     for seed in seeds:
         print(f"\n{'-' * 50}\n RODADA: Seed {seed}\n{'-' * 50}")
@@ -192,17 +230,16 @@ for ano_teste in anos_teste:
             torch.backends.cudnn.deterministic = True
             torch.backends.cudnn.benchmark = False
 
-        sgkf = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=seed)
-        gerador_divisao = sgkf.split(
-            df_resto_idx,
-            df_resto_idx["mapbiomas_class"],
-            groups=df_resto_idx["id"],
-        )
-        train_indices, val_indices = next(gerador_divisao)
-
-        df_val = df_resto_idx.iloc[val_indices].copy()
-        df_train_bruto = df_resto_idx.iloc[train_indices].copy()
-        df_train = df_train_bruto.sample(frac=1.0, random_state=seed).reset_index(drop=True)
+        gss = GroupShuffleSplit(n_splits=1, test_size=0.20, random_state=seed)
+        
+        train_idx, val_idx = next(gss.split(df_resto, groups=df_resto["id_cluster"]))
+        
+        df_train_pool = df_resto.iloc[train_idx].copy()
+        df_val_pool = df_resto.iloc[val_idx].copy()
+        
+        df_train = df_train_pool[df_train_pool["ano"] != ano_val].copy()
+        df_val = df_val_pool[df_val_pool["ano"] == ano_val].copy()
+        df_train = df_train.sample(frac=1.0, random_state=seed).reset_index(drop=True)
 
         train_dataset = PSEDataset(
             df_train["name"].values, df_train[COLUNA_ALVO].values,
@@ -227,10 +264,12 @@ for ano_teste in anos_teste:
         num_positivos = len(df_train[df_train[COLUNA_ALVO] == 1])
         peso_citrus = torch.tensor([num_negativos / num_positivos], dtype=torch.float32).to(device)
 
-        criterion = nn.BCEWithLogitsLoss(reduction='none').to(device)
+        criterion = nn.BCEWithLogitsLoss(pos_weight=peso_citrus).to(device)
         
-        optimizer = optim.RAdam(model.parameters(), lr=1e-4, weight_decay=1e-3)
-        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS, eta_min=1e-6)
+        optimizer = optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-3)
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-6
+        )
 
         best_val_loss = float("inf")
         epochs_no_improve = 0
@@ -285,7 +324,7 @@ for ano_teste in anos_teste:
                     val_loss += loss.item() * batch_x.size(0)
 
             val_epoch_loss = val_loss / len(val_loader.dataset)
-            scheduler.step()
+            scheduler.step(val_epoch_loss)
             
             # Salvando os dados no histórico
             historico_treino["epoca"].append(epoch + 1)

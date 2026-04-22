@@ -1,9 +1,9 @@
 import pandas as pd
 
-df = pd.read_csv("dataset/dataset_index.csv")
+df = pd.read_csv('/mnt/SSD_SATA/dataset/dataset_index.csv')
 
 # conta quantas vezes cada id aparece
-counts = df["id_poligono"].value_counts()
+counts = df["id"].value_counts()
 
 total = len(counts)
 
