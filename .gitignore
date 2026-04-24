@@ -213,3 +213,5 @@ dataset/dataset_index.csv
 eda/area_plantada.csv
 *.npy
 pyrightconfig.json
+dataset/*.csv
+*.joblib

@@ -19,63 +19,63 @@ from tqdm import tqdm
 torch.set_float32_matmul_precision('high')
 
 # =====================================================================
-# CONFIGURAÇÕES INICIAIS E CRIAÇÃO DE DIRETÓRIOS PARA O ARTIGO
+# INITIAL CONFIGURATIONS AND DIRECTORY CREATION FOR THE PAPER
 # =====================================================================
-FICHEIRO_INDEX = '/mnt/SSD_SATA/dataset/dataset_index.csv'
-PASTA_TENSORES = "dataset/Tensors/"  
-COLUNA_ALVO = "label_ia"
-CANAIS_ENTRADA = 10
-AMOSTRAS_S = 128  
+INDEX_FILE = '/mnt/SSD_SATA/dataset/dataset_index.csv'
+TENSORS_FOLDER = "dataset/Tensors/"  
+TARGET_COLUMN = "label_ia"
+INPUT_CHANNELS = 10
+S_SAMPLES = 128  
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"PyTorch configurado para usar: {device}")
+print(f"PyTorch configured to use: {device}")
 
-# Criando estrutura de diretórios para salvar os artefatos do artigo
-DIR_BASE_RESULTADOS = "resultados_artigo"
-os.makedirs(DIR_BASE_RESULTADOS, exist_ok=True)
-os.makedirs(os.path.join(DIR_BASE_RESULTADOS, "modelos"), exist_ok=True)
-os.makedirs(os.path.join(DIR_BASE_RESULTADOS, "historico_loss"), exist_ok=True)
-os.makedirs(os.path.join(DIR_BASE_RESULTADOS, "relatorios_classificacao"), exist_ok=True)
-os.makedirs(os.path.join(DIR_BASE_RESULTADOS, "previsoes_brutas"), exist_ok=True)
-os.makedirs(os.path.join(DIR_BASE_RESULTADOS, "rastreio_lotes"), exist_ok=True)
+# Creating directory structure to save paper artifacts
+BASE_RESULTS_DIR = "paper_results"
+os.makedirs(BASE_RESULTS_DIR, exist_ok=True)
+os.makedirs(os.path.join(BASE_RESULTS_DIR, "models"), exist_ok=True)
+os.makedirs(os.path.join(BASE_RESULTS_DIR, "loss_history"), exist_ok=True)
+os.makedirs(os.path.join(BASE_RESULTS_DIR, "classification_reports"), exist_ok=True)
+os.makedirs(os.path.join(BASE_RESULTS_DIR, "raw_predictions"), exist_ok=True)
+os.makedirs(os.path.join(BASE_RESULTS_DIR, "batch_tracking"), exist_ok=True)
 
 # -------------------------------------------------------------------------
-# 1. DATALOADER DO PSE
+# 1. PSE DATALOADER
 # -------------------------------------------------------------------------
 class PSEDataset(Dataset):
-    def __init__(self, lista_nomes_base, labels, pasta, amostras=64, is_train=False):
-        self.lista_nomes_base = lista_nomes_base
+    def __init__(self, base_names_list, labels, folder, samples=64, is_train=False):
+        self.base_names_list = base_names_list
         self.labels = labels
-        self.pasta = pasta
-        self.amostras = amostras
+        self.folder = folder
+        self.samples = samples
         self.is_train = is_train
 
     def __len__(self):
-        return len(self.lista_nomes_base)
+        return len(self.base_names_list)
 
     def __getitem__(self, idx):
-        nome_base = self.lista_nomes_base[idx]
+        base_name = self.base_names_list[idx]
         label = self.labels[idx]
 
-        # Carrega o tensor (Tempo, Canais, Pixels)
-        tensor = np.load(os.path.join(self.pasta, f"{nome_base}_pse.npy"))
+        # Load tensor (Time, Channels, Pixels)
+        tensor = np.load(os.path.join(self.folder, f"{base_name}_pse.npy"))
         total_pixels = tensor.shape[2]
 
-        replace = total_pixels < self.amostras
-        indices = np.random.choice(total_pixels, self.amostras, replace=replace)
-        tensor_amostrado = tensor[:, :, indices]
+        replace = total_pixels < self.samples
+        indices = np.random.choice(total_pixels, self.samples, replace=replace)
+        sampled_tensor = tensor[:, :, indices]
         
         if self.is_train and np.random.rand() > 0.5:
-            t_idx = np.random.randint(0, tensor_amostrado.shape[0])
-            tensor_amostrado[t_idx, :, :] = 0.0
+            t_idx = np.random.randint(0, sampled_tensor.shape[0])
+            sampled_tensor[t_idx, :, :] = 0.0
             
-        tensor_final = torch.from_numpy(tensor_amostrado.astype(np.float32))
+        final_tensor = torch.from_numpy(sampled_tensor.astype(np.float32))
         
-        return tensor_final, torch.tensor([label], dtype=torch.float32), nome_base
+        return final_tensor, torch.tensor([label], dtype=torch.float32), base_name
 
 
 # -------------------------------------------------------------------------
-# 2. ARQUITETURA PIXEL-SET ENCODER + TEMPORAL
+# 2. PIXEL-SET ENCODER + TEMPORAL ARCHITECTURE
 # -------------------------------------------------------------------------
 class PhenologyPSE(nn.Module):
     def __init__(self, in_channels=10): 
@@ -113,7 +113,7 @@ class PhenologyPSE(nn.Module):
         x = x.permute(0, 1, 3, 2) # [B, T, S, C]
         x = self.input_norm(x)
         x = x.permute(0, 1, 3, 2).reshape(B * T, C, S)
-                 
+                  
         x = F.gelu(self.spatial_bn1(self.spatial_mlp1(x)))
         x = F.gelu(self.spatial_bn2(self.spatial_mlp2(x)))
 
@@ -131,96 +131,89 @@ class PhenologyPSE(nn.Module):
         return out
 
 
-def prever(loader, tta_steps=5):
-    """Função de predição com Test-Time Augmentation (TTA)"""
+def predict(loader, tta_steps=5):
+    """Prediction function with Test-Time Augmentation (TTA)"""
     model.eval()
     y_true_final = []
-    probs_acumuladas = None
+    accumulated_probs = None
     
     with torch.no_grad():
-        for passo in range(tta_steps):
-            y_true_passo, probs_passo = [], []
+        for step in range(tta_steps):
+            y_true_step, probs_step = [], []
             for batch_x, batch_y, _ in loader:
                 batch_probs = torch.sigmoid(model(batch_x.to(device))).cpu().numpy()
-                probs_passo.extend(batch_probs)
+                probs_step.extend(batch_probs)
                 
-                if passo == 0:
-                    y_true_passo.extend(batch_y.numpy())
+                if step == 0:
+                    y_true_step.extend(batch_y.numpy())
             
-            if passo == 0:
-                probs_acumuladas = np.array(probs_passo)
-                y_true_final = np.array(y_true_passo)
+            if step == 0:
+                accumulated_probs = np.array(probs_step)
+                y_true_final = np.array(y_true_step)
             else:
-                probs_acumuladas += np.array(probs_passo)
+                accumulated_probs += np.array(probs_step)
                 
-    probs_finais = probs_acumuladas / tta_steps
-    return y_true_final.flatten(), probs_finais.flatten()
+    final_probs = accumulated_probs / tta_steps
+    return y_true_final.flatten(), final_probs.flatten()
 
 
-def extrair_coordenadas(id_str):
-    # Assume o formato "loc_longitude_latitude"
-    partes = str(id_str).split('_')
-    if len(partes) >= 3:
-        return float(partes[1]), float(partes[2])
+def extract_coordinates(id_str):
+    parts = str(id_str).split('_')
+    if len(parts) >= 3:
+        return float(parts[1]), float(parts[2])
     return np.nan, np.nan
     
 # -------------------------------------------------------------------------
-# 3. O LOOP DO EXPERIMENTO
+# 3. THE EXPERIMENT LOOP
 # -------------------------------------------------------------------------
-df_index = pd.read_csv(FICHEIRO_INDEX)
+df_index = pd.read_csv(INDEX_FILE)
 
-df_index['lon'], df_index['lat'] = zip(*df_index['id'].apply(extrair_coordenadas))
-RESOLUCAO_GRAUS = 0.02 
+df_index['lon'], df_index['lat'] = zip(*df_index['id'].apply(extract_coordinates))
+DEGREE_RESOLUTION = 0.02 
 
-# Arredondamos as coordenadas para "encaixar" os pontos nas caixas do grid
-df_index['lat_grid'] = np.floor(df_index['lat'] / RESOLUCAO_GRAUS) * RESOLUCAO_GRAUS
-df_index['lon_grid'] = np.floor(df_index['lon'] / RESOLUCAO_GRAUS) * RESOLUCAO_GRAUS
+# Round coordinates to "fit" points into grid boxes
+df_index['lat_grid'] = np.floor(df_index['lat'] / DEGREE_RESOLUTION) * DEGREE_RESOLUTION
+df_index['lon_grid'] = np.floor(df_index['lon'] / DEGREE_RESOLUTION) * DEGREE_RESOLUTION
 
-# Criamos o ID do cluster combinando as coordenadas da caixa
-# Exemplo de saída: "grid_-21.50_-47.24"
 df_index['id_cluster'] = "grid_" + df_index['lat_grid'].astype(str) + "_" + df_index['lon_grid'].astype(str)
 
-# Limpeza opcional
 df_index = df_index.dropna(subset=['lat', 'lon']).copy()
 
-# ==========================================
-# NOVO RELATÓRIO DE IMPACTO
-# ==========================================
 total_original = df_index['id'].nunique()
 total_clusters = df_index['id_cluster'].nunique()
-reducao = (1 - (total_clusters / total_original)) * 100
+reduction = (1 - (total_clusters / total_original)) * 100
 
-print(f"Total de IDs (Centroides) originais: {total_original}")
-print(f"Total de Macro-Fazendas (Grids de ~2km): {total_clusters}")
-print(f"Redução do espaço amostral de IDs: {reducao:.1f}%")
+print(f"Total original IDs (Centroids): {total_original}")
+print(f"Total Macro-Farms (~2km Grids): {total_clusters}")
+print(f"ID sample space reduction: {reduction:.1f}%")
 
-print("Verificando a integridade física dos tensores PSE...")
-ficheiros_existentes = set([
+print("Checking physical integrity of PSE tensors...")
+existing_files = set([
     f.replace("_pse.npy", "")
-    for f in os.listdir(PASTA_TENSORES) if f.endswith("_pse.npy")
+    for f in os.listdir(TENSORS_FOLDER) if f.endswith("_pse.npy")
 ])
 
-df_index = df_index[df_index["name"].isin(ficheiros_existentes)].copy()
+df_index = df_index[df_index["name"].isin(existing_files)].copy()
 
-anos_teste = [2023]
-seeds = [43, 44, 45]
+test_years = [2024,2023]
+seeds = [42, 43, 44, 45]
 
 BATCH_SIZE = 128
 EPOCHS = 100
 PATIENCE = 20 
 
-resultados_gerais = {}
+general_results = {}
 
-for ano_teste in anos_teste:
-    print(f"\n{'=' * 80}\n TESTE INÉDITO: ANO {ano_teste} \n{'=' * 80}")
+for test_year in test_years:
+    print(f"\n{'=' * 80}\n UNSEEN TEST: YEAR {test_year} \n{'=' * 80}")
 
-    df_test_idx = df_index[df_index["ano"] == ano_teste].copy()
-    anos_val = [ano_teste - 1, ano_teste - 2]
+    df_test_idx = df_index[df_index["ano"] == test_year].copy()
+    val_years = [test_year - 1, test_year - 2]
     
-    df_resto = df_index[~df_index["ano"].isin([ano_teste])].copy()
+    df_rest = df_index[~df_index["ano"].isin([test_year])].copy()
 
     for seed in seeds:
-        print(f"\n{'-' * 50}\n RODADA: Seed {seed}\n{'-' * 50}")
+        print(f"\n{'-' * 50}\n RUN: Seed {seed}\n{'-' * 50}")
 
         torch.manual_seed(seed)
         np.random.seed(seed)
@@ -231,39 +224,40 @@ for ano_teste in anos_teste:
 
         gss = GroupShuffleSplit(n_splits=1, test_size=0.20, random_state=seed)
         
-        train_idx, val_idx = next(gss.split(df_resto, groups=df_resto["id_cluster"]))
+        train_idx, val_idx = next(gss.split(df_rest, groups=df_rest["id_cluster"]))
         
-        df_train_pool = df_resto.iloc[train_idx].copy()
-        df_val_pool = df_resto.iloc[val_idx].copy()
+        df_train_pool = df_rest.iloc[train_idx].copy()
+        df_val_pool = df_rest.iloc[val_idx].copy()
         
-        df_train = df_train_pool[~df_train_pool["ano"].isin(anos_val)].copy()
-        df_val = df_val_pool[df_val_pool["ano"].isin(anos_val)].copy()
+        df_train = df_train_pool[~df_train_pool["ano"].isin(val_years)].copy()
+        df_val = df_val_pool[df_val_pool["ano"].isin(val_years)].copy()
         df_train = df_train.sample(frac=1.0, random_state=seed).reset_index(drop=True)
+        df_val = df_val.sample(frac=1.0, random_state=seed).reset_index(drop=True)
 
         train_dataset = PSEDataset(
-            df_train["name"].values, df_train[COLUNA_ALVO].values,
-            PASTA_TENSORES, amostras=AMOSTRAS_S, is_train=True
+            df_train["name"].values, df_train[TARGET_COLUMN].values,
+            TENSORS_FOLDER, samples=S_SAMPLES, is_train=True
         )
         val_dataset = PSEDataset(
-            df_val["name"].values, df_val[COLUNA_ALVO].values,
-            PASTA_TENSORES, amostras=AMOSTRAS_S
+            df_val["name"].values, df_val[TARGET_COLUMN].values,
+            TENSORS_FOLDER, samples=S_SAMPLES
         )
         test_dataset = PSEDataset(
-            df_test_idx["name"].values, df_test_idx[COLUNA_ALVO].values,
-            PASTA_TENSORES, amostras=AMOSTRAS_S
+            df_test_idx["name"].values, df_test_idx[TARGET_COLUMN].values,
+            TENSORS_FOLDER, samples=S_SAMPLES
         )
 
         train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=4, pin_memory=True)
         val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=2, pin_memory=True)
         test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=2, pin_memory=True)
 
-        model = PhenologyPSE(in_channels=CANAIS_ENTRADA).to(device)
+        model = PhenologyPSE(in_channels=INPUT_CHANNELS).to(device)
 
-        num_negativos = len(df_train[df_train[COLUNA_ALVO] == 0])
-        num_positivos = len(df_train[df_train[COLUNA_ALVO] == 1])
-        peso_citrus = torch.tensor([num_negativos / num_positivos], dtype=torch.float32).to(device)
+        num_negatives = len(df_train[df_train[TARGET_COLUMN] == 0])
+        num_positives = len(df_train[df_train[TARGET_COLUMN] == 1])
+        citrus_weight = torch.tensor([num_negatives / num_positives], dtype=torch.float32).to(device)
 
-        criterion = nn.BCEWithLogitsLoss(pos_weight=peso_citrus).to(device)
+        criterion = nn.BCEWithLogitsLoss(pos_weight=citrus_weight).to(device)
         
         optimizer = optim.RAdam(model.parameters(), lr=1e-4, weight_decay=1e-3)
         scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
@@ -277,24 +271,24 @@ for ano_teste in anos_teste:
         epochs_no_improve = 0
         best_model_wts = copy.deepcopy(model.state_dict())
         
-        # Dicionário para rastrear a evolução do modelo para geração de gráficos
-        historico_treino = {"epoca": [], "train_loss": [], "val_loss": []}
+        # Dictionary to track model evolution for generating charts
+        training_history = {"epoch": [], "train_loss": [], "val_loss": []}
         
-        rastreio_lotes = []
+        batch_tracking = []
         
         for epoch in range(EPOCHS):
             model.train()
             running_loss = 0.0
 
-            loop_treino = tqdm(train_loader, desc=f"Época {epoch + 1:03d}/{EPOCHS} [Treino]", leave=False)
-            for step, (batch_x, batch_y, batch_nomes) in enumerate(loop_treino):
+            train_loop = tqdm(train_loader, desc=f"Epoch {epoch + 1:03d}/{EPOCHS} [Train]", leave=False)
+            for step, (batch_x, batch_y, batch_names) in enumerate(train_loop):
                 batch_x, batch_y = batch_x.to(device), batch_y.to(device)
                 
-                rastreio_lotes.append({
-                    "epoca": epoch + 1,
-                    "id_lote": step,
-                    "fase": "train",
-                    "amostras": "|".join(batch_nomes)
+                batch_tracking.append({
+                    "epoch": epoch + 1,
+                    "batch_id": step,
+                    "phase": "train",
+                    "samples": "|".join(batch_names)
                 })
                 
                 optimizer.zero_grad()
@@ -305,22 +299,22 @@ for ano_teste in anos_teste:
                 optimizer.step()
                 
                 running_loss += loss.item() * batch_x.size(0)
-                loop_treino.set_postfix(loss=loss.item())
+                train_loop.set_postfix(loss=loss.item())
 
             epoch_loss = running_loss / len(train_loader.dataset)
 
             model.eval()
             val_loss = 0.0
-            loop_val = tqdm(val_loader, desc=f"Época {epoch + 1:03d}/{EPOCHS} [Valida]", leave=False)
+            val_loop = tqdm(val_loader, desc=f"Epoch {epoch + 1:03d}/{EPOCHS} [Val]", leave=False)
             
             with torch.no_grad():
-                for step, (batch_x, batch_y, batch_nomes) in enumerate(loop_val):
+                for step, (batch_x, batch_y, batch_names) in enumerate(val_loop):
                     batch_x, batch_y = batch_x.to(device), batch_y.to(device)
-                    rastreio_lotes.append({
-                        "epoca": epoch + 1,
-                        "fase": "val",
-                        "id_lote": step,
-                        "amostras": "|".join(batch_nomes)
+                    batch_tracking.append({
+                        "epoch": epoch + 1,
+                        "phase": "val",
+                        "batch_id": step,
+                        "samples": "|".join(batch_names)
                     })
                     loss = criterion(model(batch_x), batch_y)
                     val_loss += loss.item() * batch_x.size(0)
@@ -328,42 +322,42 @@ for ano_teste in anos_teste:
             val_epoch_loss = val_loss / len(val_loader.dataset)
             scheduler.step()
             
-            # Salvando os dados no histórico
-            historico_treino["epoca"].append(epoch + 1)
-            historico_treino["train_loss"].append(epoch_loss)
-            historico_treino["val_loss"].append(val_epoch_loss)
+            # Saving data to history
+            training_history["epoch"].append(epoch + 1)
+            training_history["train_loss"].append(epoch_loss)
+            training_history["val_loss"].append(val_epoch_loss)
 
             if val_epoch_loss < best_val_loss:
                 best_val_loss = val_epoch_loss
                 best_model_wts = copy.deepcopy(model.state_dict())
                 epochs_no_improve = 0
-                status = " (Melhorou!)"
+                status = " (Improved!)"
             else:
                 epochs_no_improve += 1
                 status = ""
 
-            print(f"Época {epoch + 1:03d}/{EPOCHS} | Train: {epoch_loss:.4f} | Val: {val_epoch_loss:.4f}{status}")
+            print(f"Epoch {epoch + 1:03d}/{EPOCHS} | Train: {epoch_loss:.4f} | Val: {val_epoch_loss:.4f}{status}")
 
             if epochs_no_improve >= PATIENCE:
-                print(f"-> Early Stopping: O treinamento parou na época {epoch + 1}.")
+                print(f"-> Early Stopping: Training stopped at epoch {epoch + 1}.")
                 break
 
         # =====================================================================
-        # EXPORTAÇÃO DOS ARTEFATOS E RESULTADOS (NOVO)
+        # EXPORTING ARTIFACTS AND RESULTS
         # =====================================================================
-        print("\nCarregando os melhores pesos para gerar as métricas e exportar dados...")
+        print("\nLoading best weights to generate metrics and export data...")
         model.load_state_dict(best_model_wts)
         
-        # 1. Salvar os pesos do modelo treinado
-        caminho_modelo = os.path.join(DIR_BASE_RESULTADOS, "modelos", f"pesos_ano_{ano_teste}_seed_{seed}.pth")
-        torch.save(best_model_wts, caminho_modelo)
+        # 1. Save the trained model weights
+        model_path = os.path.join(BASE_RESULTS_DIR, "models", f"weights_year_{test_year}_seed_{seed}.pth")
+        torch.save(best_model_wts, model_path)
         
-        # 2. Salvar o histórico de aprendizado (Loss)
-        df_historico = pd.DataFrame(historico_treino)
-        df_historico.to_csv(os.path.join(DIR_BASE_RESULTADOS, "historico_loss", f"loss_ano_{ano_teste}_seed_{seed}.csv"), index=False)
+        # 2. Save learning history (Loss)
+        df_history = pd.DataFrame(training_history)
+        df_history.to_csv(os.path.join(BASE_RESULTS_DIR, "loss_history", f"loss_year_{test_year}_seed_{seed}.csv"), index=False)
 
-        y_true_val, probs_val = prever(val_loader)
-        y_true_test, probs_test = prever(test_loader)
+        y_true_val, probs_val = predict(val_loader)
+        y_true_test, probs_test = predict(test_loader)
 
         precisions, recalls, thresholds = precision_recall_curve(y_true_val, probs_val)
         recalls = recalls[:-1]
@@ -371,85 +365,85 @@ for ano_teste in anos_teste:
         mask = recalls >= 0.75
         if np.any(mask):
             f1_scores = 2 * (precisions[mask] * recalls[mask]) / (precisions[mask] + recalls[mask] + 1e-8)
-            melhor_indice = np.argmax(f1_scores)
-            limiar_otimo = thresholds[mask][melhor_indice]
+            best_index = np.argmax(f1_scores)
+            optimal_threshold = thresholds[mask][best_index]
         else:
-            melhor_indice = np.argmax(recalls)
-            limiar_otimo = thresholds[melhor_indice]
+            best_index = np.argmax(recalls)
+            optimal_threshold = thresholds[best_index]
 
-        print(f">> Limiar Otimizado na Validação: {limiar_otimo:.4f}")
-        preds_val = (probs_val >= limiar_otimo).astype(int)
-        preds_test = (probs_test >= limiar_otimo).astype(int)
+        print(f">> Optimized Threshold on Validation: {optimal_threshold:.4f}")
+        preds_val = (probs_val >= optimal_threshold).astype(int)
+        preds_test = (probs_test >= optimal_threshold).astype(int)
 
-        # 3. Extrair e salvar os relatórios do scikit-learn como CSV
+        # 3. Extract and save scikit-learn reports as CSV
         report_val_dict = classification_report(y_true_val, preds_val, zero_division=0, output_dict=True)
         report_test_dict = classification_report(y_true_test, preds_test, zero_division=0, output_dict=True)
         
         pd.DataFrame(report_val_dict).transpose().to_csv(
-            os.path.join(DIR_BASE_RESULTADOS, "relatorios_classificacao", f"val_ano_{ano_teste}_seed_{seed}.csv")
+            os.path.join(BASE_RESULTS_DIR, "classification_reports", f"val_year_{test_year}_seed_{seed}.csv")
         )
         pd.DataFrame(report_test_dict).transpose().to_csv(
-            os.path.join(DIR_BASE_RESULTADOS, "relatorios_classificacao", f"test_ano_{ano_teste}_seed_{seed}.csv")
+            os.path.join(BASE_RESULTS_DIR, "classification_reports", f"test_year_{test_year}_seed_{seed}.csv")
         )
 
-        # 4. Salvar as previsões brutas (Gabarito vs Probabilidade Real vs Chute Final)
-        df_preds_brutas = pd.DataFrame({
+        # 4. Save raw predictions (Ground Truth vs Real Probability vs Final Prediction)
+        df_raw_preds = pd.DataFrame({
             "y_true": y_true_test,
-            "probabilidade_modelo": probs_test,
-            "predicao_final_limiar": preds_test
+            "model_probability": probs_test,
+            "final_threshold_prediction": preds_test
         })
-        df_preds_brutas.to_csv(
-            os.path.join(DIR_BASE_RESULTADOS, "previsoes_brutas", f"previsoes_ano_{ano_teste}_seed_{seed}.csv"), 
+        df_raw_preds.to_csv(
+            os.path.join(BASE_RESULTS_DIR, "raw_predictions", f"predictions_year_{test_year}_seed_{seed}.csv"), 
             index=False
         )
-        df_lotes = pd.DataFrame(rastreio_lotes)
-        df_lotes.to_csv(
-            os.path.join(DIR_BASE_RESULTADOS, "rastreio_lotes", f"composicao_lotes_ano_{ano_teste}_seed_{seed}.csv"), 
+        df_batches = pd.DataFrame(batch_tracking)
+        df_batches.to_csv(
+            os.path.join(BASE_RESULTS_DIR, "batch_tracking", f"batch_composition_year_{test_year}_seed_{seed}.csv"), 
             index=False
         )
 
-        print(f">> Resultado no TESTE ({ano_teste} - {seed}):")
+        print(f">> TEST Result ({test_year} - {seed}):")
         print(classification_report(y_true_test, preds_test, zero_division=0))
 
         df_test_current = df_test_idx.copy()
-        df_test_current["previsao_IA"] = preds_test
+        df_test_current["AI_prediction"] = preds_test
 
-        col_key = (ano_teste, seed)
-        resultados_gerais[col_key] = {}
+        col_key = (test_year, seed)
+        general_results[col_key] = {}
 
-        for cultura, dados_cultura in df_test_current.groupby("crop"):
-            total = len(dados_cultura)
-            alvo_real = 1 if cultura == "Citrus" else 0
-            acertos = (dados_cultura["previsao_IA"] == alvo_real).sum()
-            taxa_acerto = (acertos / total) * 100
-            resultados_gerais[col_key][cultura] = f"{acertos}/{total} ({taxa_acerto:.1f}%)"
+        for crop, crop_data in df_test_current.groupby("crop"):
+            total = len(crop_data)
+            real_target = 1 if crop == "Citrus" else 0
+            hits = (crop_data["AI_prediction"] == real_target).sum()
+            accuracy_rate = (hits / total) * 100
+            general_results[col_key][crop] = f"{hits}/{total} ({accuracy_rate:.1f}%)"
 
         precision, recall, f1, _ = precision_recall_fscore_support(
             y_true_test, preds_test, labels=[0, 1], zero_division=0
         )
 
-        resultados_gerais[col_key]["Recall 0"] = round(recall[0], 2)
-        resultados_gerais[col_key]["Recall 1"] = round(recall[1], 2)
-        resultados_gerais[col_key]["Precision 0"] = round(precision[0], 2)
-        resultados_gerais[col_key]["Precision 1"] = round(precision[1], 2)
+        general_results[col_key]["Recall 0"] = round(recall[0], 2)
+        general_results[col_key]["Recall 1"] = round(recall[1], 2)
+        general_results[col_key]["Precision 0"] = round(precision[0], 2)
+        general_results[col_key]["Precision 1"] = round(precision[1], 2)
 
 # =====================================================================
-# GERAÇÃO DA TABELA FINAL COMPILADA
+# FINAL COMPILED TABLE GENERATION
 # =====================================================================
 print("\n" + "=" * 80)
-print(" TABELA FINAL DE RESULTADOS (ANÁLISE FINA E MÉTRICAS GERAIS)")
+print(" FINAL RESULTS TABLE (FINE ANALYSIS AND GENERAL METRICS)")
 print("=" * 80)
 
-df_tabela = pd.DataFrame(resultados_gerais)
-df_tabela = df_tabela[sorted(df_tabela.columns)]
+df_table = pd.DataFrame(general_results)
+df_table = df_table[sorted(df_table.columns)]
 
-culturas_ordenadas = sorted([c for c in df_index["crop"].dropna().unique()])
-ordem_linhas = culturas_ordenadas + ["Recall 0", "Recall 1", "Precision 0", "Precision 1"]
+ordered_crops = sorted([c for c in df_index["crop"].dropna().unique()])
+row_order = ordered_crops + ["Recall 0", "Recall 1", "Precision 0", "Precision 1"]
 
-df_tabela = df_tabela.reindex(ordem_linhas)
-df_tabela.columns.names = ["Ano", "Seed"]
+df_table = df_table.reindex(row_order)
+df_table.columns.names = ["Year", "Seed"]
 
-print(df_tabela.to_string())
-caminho_tabela_final = os.path.join(DIR_BASE_RESULTADOS, "tabela_consolidada_artigo.csv")
-df_tabela.to_csv(caminho_tabela_final)
-print(f"\nTodos os artefatos foram salvos com sucesso na pasta: {DIR_BASE_RESULTADOS}/")
+print(df_table.to_string())
+final_table_path = os.path.join(BASE_RESULTS_DIR, "consolidated_paper_table.csv")
+df_table.to_csv(final_table_path)
+print(f"\nAll artifacts were successfully saved in the folder: {BASE_RESULTS_DIR}/")
