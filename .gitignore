@@ -215,3 +215,4 @@ eda/area_plantada.csv
 pyrightconfig.json
 dataset/*.csv
 *.joblib
+.$*.bkp
