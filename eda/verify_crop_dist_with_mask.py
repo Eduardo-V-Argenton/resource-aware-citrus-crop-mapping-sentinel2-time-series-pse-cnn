@@ -46,11 +46,15 @@ data = pd.read_csv('/mnt/SSD_SATA/dataset/dataset_index.csv')
 data_len = len(data)
 small_counter = 0
 
+valid_mask = []
+
 for i, row in enumerate(data.itertuples(index=False)):
     print(f"{i}/{data_len}", end="\r")
-    if not verify_small(row.name):
-        data.drop(data[data['name'] == row.name].index, inplace=True)
-        small_counter += 1
+    is_valid = verify_small(row.name)
+    valid_mask.append(is_valid)
+
+data = data[valid_mask]
+small_counter = data_len - len(data)
 
 total_len = len(data)
 citrus_len = len(data[data["mapbiomas_class"] == 47])
@@ -64,14 +68,19 @@ flooded_len = len(data[data["mapbiomas_class"] == 11])
 
 false_len = sugarcane_len + coffee_len + pasture_len + forest_len + soy_len + silviculture_len + flooded_len
 
-print(f"Total samples: {total_len}")
-print(f"Total citrus samples: {citrus_len} ({citrus_len/total_len:.2%})")
-print(f"Total sugarcane samples: {sugarcane_len} ({sugarcane_len/total_len:.2%})")
-print(f"Total coffee samples: {coffee_len} ({coffee_len/total_len:.2%})")
-print(f"Total pasture samples: {pasture_len} ({pasture_len/total_len:.2%})")
-print(f"Total forest samples: {forest_len} ({forest_len/total_len:.2%})")
-print(f"Total soy samples: {soy_len} ({soy_len/total_len:.2%})")
-print(f"Total silviculture samples: {silviculture_len} ({silviculture_len/total_len:.2%})")
-print(f"Total flooded field samples: {flooded_len} ({flooded_len/total_len:.2%})")
-print(f"Total false samples: {false_len/total_len:.2%}")
-print(f"Total samples removed for being too small: {small_counter} ({small_counter/data_len:.2%})")
+data = [
+    ["citrus", citrus_len, citrus_len/total_len],
+    ["sugarcane", sugarcane_len, sugarcane_len/total_len],
+    ["coffee", coffee_len, coffee_len/total_len],
+    ["pasture", pasture_len, pasture_len/total_len],
+    ["forest", forest_len, forest_len/total_len],
+    ["soy", soy_len, soy_len/total_len],
+    ["silviculture", silviculture_len, silviculture_len/total_len],
+    ["flooded_field", flooded_len, flooded_len/total_len],
+    ["false", false_len, false_len/total_len],
+    ["removed_small", small_counter, small_counter/data_len],
+]
+
+df = pd.DataFrame(data, columns=["class", "count", "percentage"])
+
+df.to_csv("results/class_distribution.csv", index=False)

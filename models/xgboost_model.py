@@ -11,12 +11,12 @@ from sklearn.model_selection import GroupShuffleSplit
 import joblib
 
 INDEX_FILE = '/mnt/SSD_SATA/dataset/dataset_index.csv'
-ML_FEATURES_FILE = 'dataset/dataset_ml_bands_indexes.csv' 
-# ML_FEATURES_FILE = 'dataset/dataset_ml.csv' 
+# ML_FEATURES_FILE = 'dataset/dataset_ml_bands_indexes.csv' 
+ML_FEATURES_FILE = 'dataset/dataset_ml.csv' 
 TARGET_COLUMN = "label_ia"
 
-BASE_RESULTS_DIR = "paper_results_xgb_bands_indexes"
-# BASE_RESULTS_DIR = "paper_results_xgb"
+# BASE_RESULTS_DIR = "paper_results_xgb_bands_indexes"
+BASE_RESULTS_DIR = "paper_results_xgb"
 os.makedirs(BASE_RESULTS_DIR, exist_ok=True)
 os.makedirs(os.path.join(BASE_RESULTS_DIR, "models"), exist_ok=True)
 os.makedirs(os.path.join(BASE_RESULTS_DIR, "classification_reports"), exist_ok=True)
@@ -116,19 +116,23 @@ for test_year in test_years:
         probs_test = model.predict_proba(X_test)[:, 1]
 
         precisions, recalls, thresholds = precision_recall_curve(y_val, probs_val)
-        recalls = recalls[:-1]
-        precisions = precisions[:-1]
-        mask = recalls >= 0.75
-        
-        if np.any(mask):
-            f1_scores = 2 * (precisions[mask] * recalls[mask]) / (precisions[mask] + recalls[mask] + 1e-8)
-            best_index = np.argmax(f1_scores)
-            optimal_threshold = thresholds[mask][best_index]
-        else:
-            best_index = np.argmax(recalls)
-            optimal_threshold = thresholds[best_index]
+        # recalls = recalls[:-1]
+        # precisions = precisions[:-1]
+        # mask = recalls >= 0.75
+        # if np.any(mask):
+        #     f1_scores = 2 * (precisions[mask] * recalls[mask]) / (precisions[mask] + recalls[mask] + 1e-8)
+        #     best_index = np.argmax(f1_scores)
+        #     optimal_threshold = thresholds[mask][best_index]
+        # else:
+        #     best_index = np.argmax(recalls)
+        #     optimal_threshold = thresholds[best_index]
 
-        print(f">> Optimized Threshold on Validation: {optimal_threshold:.4f}")
+        # print(f">> Optimized Threshold on Validation: {optimal_threshold:.4f}")
+        f1_scores = 2 * (precisions * recalls) / (precisions + recalls + 1e-8)
+        best_idx = np.argmax(f1_scores)
+        optimal_threshold = thresholds[best_idx]
+        
+        print(f">> Threshold: {optimal_threshold:.4f}")
         preds_val = (probs_val >= optimal_threshold).astype(int)
         preds_test = (probs_test >= optimal_threshold).astype(int)
 

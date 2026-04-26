@@ -1,0 +1,123 @@
+<mxfile host="Electron" agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/29.6.6 Chrome/144.0.7559.236 Electron/40.8.4 Safari/537.36" version="29.6.6">
+  <diagram name="Página-1" id="p-8qA-JI5I_odxdKbF_u">
+    <mxGraphModel dx="1426" dy="884" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0" adaptiveColors="simple">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="W6elvTq-F1HJD73eAZit-3" edge="1" parent="1" source="W6elvTq-F1HJD73eAZit-1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=none;fontColor=default;" target="W6elvTq-F1HJD73eAZit-2" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="W6elvTq-F1HJD73eAZit-1" parent="1" style="ellipse;html=1;labelBackgroundColor=none;rounded=1;" value="" vertex="1">
+          <mxGeometry height="30" width="30" x="30" y="430" as="geometry" />
+        </mxCell>
+        <mxCell id="W6elvTq-F1HJD73eAZit-5" edge="1" parent="1" source="W6elvTq-F1HJD73eAZit-2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=none;fontColor=default;" target="W6elvTq-F1HJD73eAZit-4" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="W6elvTq-F1HJD73eAZit-2" parent="1" style="html=1;align=center;verticalAlign=top;rounded=1;absoluteArcSize=1;arcSize=10;dashed=0;whiteSpace=wrap;labelBackgroundColor=none;" value="Read SP SHP file and filter to get the shape of only the cities in the immediate regions of São João da Boa Vista and Mogi Guaçu" vertex="1">
+          <mxGeometry height="65" width="227.5" x="90" y="412.5" as="geometry" />
+        </mxCell>
+        <mxCell id="YYo3BJOwcOdOj3FiTJeT-1" edge="1" parent="1" source="W6elvTq-F1HJD73eAZit-4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=none;fontColor=default;" target="W6elvTq-F1HJD73eAZit-6" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="W6elvTq-F1HJD73eAZit-4" parent="1" style="html=1;align=center;verticalAlign=top;rounded=1;absoluteArcSize=1;arcSize=10;dashed=0;whiteSpace=wrap;labelBackgroundColor=none;" value="Read TIF file with all agriculture cultures&amp;nbsp;" vertex="1">
+          <mxGeometry height="40" width="140" x="355" y="425" as="geometry" />
+        </mxCell>
+        <mxCell id="YYo3BJOwcOdOj3FiTJeT-3" edge="1" parent="1" source="W6elvTq-F1HJD73eAZit-6" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=none;fontColor=default;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="qBx5nD6XV1hocITkuUbz-8" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="W6elvTq-F1HJD73eAZit-6" parent="1" style="html=1;align=center;verticalAlign=top;rounded=1;absoluteArcSize=1;arcSize=10;dashed=0;whiteSpace=wrap;labelBackgroundColor=none;" value="&lt;div&gt;&lt;div&gt;Clip raster using municipality boundaries&lt;/div&gt;&lt;/div&gt;" vertex="1">
+          <mxGeometry height="43.75" width="150" x="530" y="423.13" as="geometry" />
+        </mxCell>
+        <mxCell id="YYo3BJOwcOdOj3FiTJeT-5" edge="1" parent="1" source="YYo3BJOwcOdOj3FiTJeT-2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=none;fontColor=default;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" target="YYo3BJOwcOdOj3FiTJeT-4" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="YYo3BJOwcOdOj3FiTJeT-2" parent="1" style="html=1;align=center;verticalAlign=top;rounded=1;absoluteArcSize=1;arcSize=10;dashed=0;whiteSpace=wrap;labelBackgroundColor=none;" value="Vectorize raster into polygons" vertex="1">
+          <mxGeometry height="40" width="140" x="30" y="530" as="geometry" />
+        </mxCell>
+        <mxCell id="YYo3BJOwcOdOj3FiTJeT-10" edge="1" parent="1" source="YYo3BJOwcOdOj3FiTJeT-4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=none;fontColor=default;" target="YYo3BJOwcOdOj3FiTJeT-9" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="YYo3BJOwcOdOj3FiTJeT-4" parent="1" style="html=1;align=center;verticalAlign=top;rounded=1;absoluteArcSize=1;arcSize=10;dashed=0;whiteSpace=wrap;labelBackgroundColor=none;" value="Reproject to EPSG:6933 and filter polygons &amp;gt; 1.0 ha" vertex="1">
+          <mxGeometry height="50" width="140" x="210" y="525" as="geometry" />
+        </mxCell>
+        <mxCell id="qBx5nD6XV1hocITkuUbz-2" edge="1" parent="1" source="YYo3BJOwcOdOj3FiTJeT-9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="YYo3BJOwcOdOj3FiTJeT-12" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="YYo3BJOwcOdOj3FiTJeT-9" parent="1" style="html=1;align=center;verticalAlign=top;rounded=1;absoluteArcSize=1;arcSize=10;dashed=0;whiteSpace=wrap;labelBackgroundColor=none;" value="Intersect polygons with municipality boundaries" vertex="1">
+          <mxGeometry height="40" width="140" x="385" y="530" as="geometry" />
+        </mxCell>
+        <mxCell id="qBx5nD6XV1hocITkuUbz-24" edge="1" parent="1" source="YYo3BJOwcOdOj3FiTJeT-12" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="YYo3BJOwcOdOj3FiTJeT-14">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="YYo3BJOwcOdOj3FiTJeT-12" parent="1" style="html=1;align=center;verticalAlign=top;rounded=1;absoluteArcSize=1;arcSize=10;dashed=0;whiteSpace=wrap;labelBackgroundColor=none;" value="Re-filter polygons &amp;gt; 1.0 ha" vertex="1">
+          <mxGeometry height="40" width="140" x="560" y="530" as="geometry" />
+        </mxCell>
+        <mxCell id="qBx5nD6XV1hocITkuUbz-27" edge="1" parent="1" source="YYo3BJOwcOdOj3FiTJeT-14" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="YYo3BJOwcOdOj3FiTJeT-16">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="YYo3BJOwcOdOj3FiTJeT-14" parent="1" style="html=1;align=center;verticalAlign=top;rounded=1;absoluteArcSize=1;arcSize=10;dashed=0;whiteSpace=wrap;labelBackgroundColor=none;" value="Area(Others) &amp;gt; Area(Citrus) * 4?" vertex="1">
+          <mxGeometry height="40" width="140" x="725" y="530" as="geometry" />
+        </mxCell>
+        <mxCell id="YYo3BJOwcOdOj3FiTJeT-20" edge="1" parent="1" source="YYo3BJOwcOdOj3FiTJeT-16" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=none;fontColor=default;entryX=0;entryY=0.5;entryDx=0;entryDy=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" target="YYo3BJOwcOdOj3FiTJeT-18" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="qBx5nD6XV1hocITkuUbz-7" connectable="0" parent="YYo3BJOwcOdOj3FiTJeT-20" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="Yes" vertex="1">
+          <mxGeometry relative="1" x="-0.8378" y="-2" as="geometry">
+            <mxPoint x="24" y="-2" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="qBx5nD6XV1hocITkuUbz-18" edge="1" parent="1" source="YYo3BJOwcOdOj3FiTJeT-16" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" target="YYo3BJOwcOdOj3FiTJeT-25">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="85" y="670" />
+              <mxPoint x="445" y="670" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="qBx5nD6XV1hocITkuUbz-19" connectable="0" parent="qBx5nD6XV1hocITkuUbz-18" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="No" vertex="1">
+          <mxGeometry relative="1" x="-0.6716" y="-3" as="geometry">
+            <mxPoint x="6" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="YYo3BJOwcOdOj3FiTJeT-16" parent="1" style="rhombus;labelBackgroundColor=none;rounded=1;" value="" vertex="1">
+          <mxGeometry height="30" width="30" x="30" y="612.5" as="geometry" />
+        </mxCell>
+        <mxCell id="YYo3BJOwcOdOj3FiTJeT-26" edge="1" parent="1" source="YYo3BJOwcOdOj3FiTJeT-18" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=none;fontColor=default;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="YYo3BJOwcOdOj3FiTJeT-25" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="YYo3BJOwcOdOj3FiTJeT-18" parent="1" style="html=1;align=center;verticalAlign=top;rounded=1;absoluteArcSize=1;arcSize=10;dashed=0;whiteSpace=wrap;labelBackgroundColor=none;" value="Downsample &#39;Others&#39; to 1:4 area ratio, preserving internal class proportions" vertex="1">
+          <mxGeometry height="55" width="150" x="200" y="600" as="geometry" />
+        </mxCell>
+        <mxCell id="qBx5nD6XV1hocITkuUbz-28" edge="1" parent="1" source="YYo3BJOwcOdOj3FiTJeT-25" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="qBx5nD6XV1hocITkuUbz-23" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="YYo3BJOwcOdOj3FiTJeT-25" parent="1" style="html=1;align=center;verticalAlign=top;rounded=1;absoluteArcSize=1;arcSize=10;dashed=0;whiteSpace=wrap;labelBackgroundColor=none;" value="Simplify geometries (tolerance = 10.0 m)" vertex="1">
+          <mxGeometry height="37.5" width="160" x="385" y="608.75" as="geometry" />
+        </mxCell>
+        <mxCell id="YYo3BJOwcOdOj3FiTJeT-27" parent="1" style="ellipse;html=1;shape=endState;labelBackgroundColor=none;rounded=1;" value="" vertex="1">
+          <mxGeometry height="30" width="30" x="790" y="612.5" as="geometry" />
+        </mxCell>
+        <mxCell id="qBx5nD6XV1hocITkuUbz-16" edge="1" parent="1" source="qBx5nD6XV1hocITkuUbz-8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="YYo3BJOwcOdOj3FiTJeT-2">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="795" y="510" />
+              <mxPoint x="100" y="510" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="qBx5nD6XV1hocITkuUbz-8" parent="1" style="html=1;align=center;verticalAlign=top;rounded=1;absoluteArcSize=1;arcSize=10;dashed=0;whiteSpace=wrap;" value="Filter only the needed classes:&amp;nbsp;&lt;span style=&quot;background-color: transparent;&quot;&gt;Citrus, Cana-de-açúcar, Café, Pastagem, Silvicultura, Soja, Formação Florestal e Campo alagado&lt;/span&gt;&lt;div&gt;&lt;span style=&quot;background-color: transparent;&quot;&gt;&lt;br&gt;&lt;/span&gt;&lt;/div&gt;" vertex="1">
+          <mxGeometry height="100" width="150" x="720" y="395" as="geometry" />
+        </mxCell>
+        <mxCell id="qBx5nD6XV1hocITkuUbz-14" edge="1" parent="1" source="YYo3BJOwcOdOj3FiTJeT-12" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="YYo3BJOwcOdOj3FiTJeT-12">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="qBx5nD6XV1hocITkuUbz-29" edge="1" parent="1" source="qBx5nD6XV1hocITkuUbz-23" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="YYo3BJOwcOdOj3FiTJeT-27" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="qBx5nD6XV1hocITkuUbz-23" parent="1" style="html=1;align=center;verticalAlign=top;rounded=1;absoluteArcSize=1;arcSize=10;dashed=0;whiteSpace=wrap;" value="&lt;span data-path-to-node=&quot;6,12,0&quot; data-index-in-node=&quot;0&quot;&gt;Reproject to EPSG:4326 &amp;amp; Export GPKG&lt;/span&gt;" vertex="1">
+          <mxGeometry height="40" width="140" x="600" y="607.5" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
