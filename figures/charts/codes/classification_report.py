@@ -11,6 +11,8 @@ import matplotlib.patches as mpatches
 # =====================================================================
 results_config = {
     "paper_results": "PSE-CNN (Proposed)",
+    "paper_results_pse_tae": "PSE-TAE",
+    "paper_results_pse_transformer": "PSE-Transformer",
     "paper_results_rf": "RF (Bands)",
     "paper_results_rf_bands_indexes": "RF (Bands+Idx)",
     "paper_results_xgb": "XGB (Bands)",
@@ -19,10 +21,12 @@ results_config = {
 
 styles = {
     "PSE-CNN (Proposed)":   {"color": "#D62728"}, # Vermelho Forte
-    "RF (Bands)":       {"color": "#1F77B4"}, # Azul
-    "RF (Bands+Idx)":   {"color": "#2CA02C"}, # Verde
-    "XGB (Bands)":      {"color": "#FF7F0E"}, # Laranja
-    "XGB (Bands+Idx)":  {"color": "#9467BD"}  # Roxo
+    "PSE-TAE":              {"color": "#8C564B"}, #Marrom
+    "PSE-Transformer":      {"color": "#17BECF"}, #Ciano
+    "RF (Bands)":           {"color": "#1F77B4"}, # Azul
+    "RF (Bands+Idx)":       {"color": "#2CA02C"}, # Verde
+    "XGB (Bands)":          {"color": "#FF7F0E"}, # Laranja
+    "XGB (Bands+Idx)":      {"color": "#9467BD"},  # Roxo
 }
 
 # =====================================================================
@@ -118,7 +122,7 @@ for metric_name, ax, label in metrics:
             
             if item_name == 'boxes':
                 element.set_facecolor(color)
-                element.set_alpha(0.3) # Deixei a caixa um pouco mais transparente para os pontos brilharem mais
+                element.set_alpha(0.3)
                 element.set_edgecolor(color)
                 element.set_linewidth(1.5)
             elif item_name == 'medians':
@@ -131,8 +135,8 @@ for metric_name, ax, label in metrics:
     # =========================
     # Eixos, Ticks e Escalas
     # =========================
-    ax.set_ylim(0.3, 0.95) 
-    ax.set_yticks(np.arange(0.3, 1.0, 0.1))
+    ax.set_ylim(0.0, 1) 
+    ax.set_yticks(np.arange(0.0, 1.0, 0.1))
     
     ax.set_xticks(positions)
     ax.set_xticklabels([])
@@ -166,13 +170,13 @@ for model_name in models:
 fig.legend(
     handles=legend_handles,
     loc='upper center',
-    bbox_to_anchor=(0.5, 0.05),
-    ncol=5,
+    bbox_to_anchor=(0.5, 0.06), 
+    ncol=4,
     frameon=False, 
     fontsize=13
 )
 
-plt.tight_layout(rect=[0, 0.08, 1, 0.98])
+plt.tight_layout(rect=[0, 0.12, 1, 0.98])
 
 output_dir = "figures/charts/exported"
 os.makedirs(output_dir, exist_ok=True)
