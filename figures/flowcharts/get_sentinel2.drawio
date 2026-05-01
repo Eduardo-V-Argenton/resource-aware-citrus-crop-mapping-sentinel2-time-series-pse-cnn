@@ -1,14 +1,11 @@
-<mxfile host="Electron" agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/29.6.6 Chrome/144.0.7559.236 Electron/40.8.4 Safari/537.36" version="29.6.6">
+<mxfile host="Electron" agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/29.6.6 Chrome/144.0.7559.236 Electron/40.8.4 Safari/537.36">
   <diagram name="Página-1" id="ajuivLIZLbuZx72DHj2N">
-    <mxGraphModel dx="1188" dy="737" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+    <mxGraphModel dx="1488" dy="931" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
-        <mxCell id="KXGhCOxQ1NSeSSTKAIZr-11" edge="1" parent="1" source="KXGhCOxQ1NSeSSTKAIZr-1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="KXGhCOxQ1NSeSSTKAIZr-9" value="">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="KXGhCOxQ1NSeSSTKAIZr-1" parent="1" style="ellipse;html=1;" value="" vertex="1">
-          <mxGeometry height="30" width="30" x="70" y="338.75" as="geometry" />
+        <mxCell id="zAo_ps2QKQjH3a5VI-JJ-1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;" value="" vertex="1">
+          <mxGeometry height="330" width="930" x="90" y="270" as="geometry" />
         </mxCell>
         <mxCell id="KXGhCOxQ1NSeSSTKAIZr-29" edge="1" parent="1" source="KXGhCOxQ1NSeSSTKAIZr-4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="KXGhCOxQ1NSeSSTKAIZr-19">
           <mxGeometry relative="1" as="geometry" />
@@ -46,16 +43,8 @@
         <mxCell id="KXGhCOxQ1NSeSSTKAIZr-25" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;rounded=0;" value="3 = cloud shadow,&lt;br data-start=&quot;98&quot; data-end=&quot;101&quot;&gt;8 = cloud (medium probability),&lt;br&gt;9 = cloud (high probability),&lt;br&gt;&lt;div style=&quot;&quot;&gt;&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(0, 0, 0), rgb(255, 255, 255));&quot;&gt;10 = thin cirrus,&lt;/span&gt;&lt;/div&gt;11 = snow or ice." vertex="1">
           <mxGeometry height="82.5" width="170" x="130" y="507.5" as="geometry" />
         </mxCell>
-        <mxCell id="VA2QwxIFZfztoSDUJDnK-4" edge="1" parent="1" source="VA2QwxIFZfztoSDUJDnK-1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="j3fVfiA4TLcXjAy1hkZx-1" value="">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="720" y="468.75" as="targetPoint" />
-          </mxGeometry>
-        </mxCell>
         <mxCell id="VA2QwxIFZfztoSDUJDnK-1" parent="1" style="html=1;align=center;verticalAlign=top;rounded=1;absoluteArcSize=1;arcSize=10;dashed=0;whiteSpace=wrap;" value="Convert image time-series into 4D Numpy tensors (Time, Bands, Height, Width)" vertex="1">
           <mxGeometry height="56.25" width="160" x="520" y="440.63" as="geometry" />
-        </mxCell>
-        <mxCell id="j3fVfiA4TLcXjAy1hkZx-1" parent="1" style="ellipse;html=1;shape=endState;fillColor=strokeColor;" value="" vertex="1">
-          <mxGeometry height="30" width="30" x="720" y="453.75" as="geometry" />
         </mxCell>
         <mxCell id="j3fVfiA4TLcXjAy1hkZx-6" edge="1" parent="1" source="j3fVfiA4TLcXjAy1hkZx-4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="KXGhCOxQ1NSeSSTKAIZr-4" value="">
           <mxGeometry relative="1" as="geometry" />
