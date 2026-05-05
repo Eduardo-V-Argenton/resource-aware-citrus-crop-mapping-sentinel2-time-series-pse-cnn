@@ -97,7 +97,7 @@ for j in range(10, len(axes)):
     fig.delaxes(axes[j])
 plt.tight_layout()
 output_name = "images_ex.png"
-plt.savefig(output_name, dpi=300, bbox_inches='tight', transparent=False)
+plt.savefig(output_name, dpi=650, bbox_inches='tight', transparent=False)
 print(f"Imagem salva com sucesso: {output_name}")
 
 plt.show()

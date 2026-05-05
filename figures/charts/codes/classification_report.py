@@ -182,5 +182,5 @@ output_dir = "figures/charts/exported"
 os.makedirs(output_dir, exist_ok=True)
 output_path = os.path.join(output_dir, "classification_report.png")
 
-plt.savefig(output_path, dpi=300, bbox_inches='tight')
+plt.savefig(output_path, dpi=650, bbox_inches='tight')
 plt.show()
