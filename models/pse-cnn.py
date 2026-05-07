@@ -11,6 +11,7 @@ from sklearn.metrics import (
     classification_report,
     precision_recall_curve,
     precision_recall_fscore_support,
+    confusion_matrix
 )
 from sklearn.model_selection import GroupShuffleSplit
 from torch.utils.data import DataLoader, Dataset
@@ -275,7 +276,11 @@ for test_year in test_years:
         training_history = {"epoch": [], "train_loss": [], "val_loss": []}
         
         batch_tracking = []
-        
+        torch.cuda.reset_peak_memory_stats()
+        torch.cuda.synchronize()
+        start_train_event = torch.cuda.Event(enable_timing=True)
+        end_train_event = torch.cuda.Event(enable_timing=True)
+        start_train_event.record()
         for epoch in range(EPOCHS):
             model.train()
             running_loss = 0.0
@@ -342,6 +347,10 @@ for test_year in test_years:
                 print(f"-> Early Stopping: Training stopped at epoch {epoch + 1}.")
                 break
 
+        end_train_event.record()
+        torch.cuda.synchronize() 
+        train_time_sec = start_train_event.elapsed_time(end_train_event) / 1000.0
+        peak_vram_mb = torch.cuda.max_memory_allocated() / (1024 * 1024)
         # =====================================================================
         # EXPORTING ARTIFACTS AND RESULTS
         # =====================================================================
@@ -357,7 +366,16 @@ for test_year in test_years:
         df_history.to_csv(os.path.join(BASE_RESULTS_DIR, "loss_history", f"loss_year_{test_year}_seed_{seed}.csv"), index=False)
 
         y_true_val, probs_val = predict(val_loader)
+        torch.cuda.synchronize()
+        start_infer_event = torch.cuda.Event(enable_timing=True)
+        end_infer_event = torch.cuda.Event(enable_timing=True)
+        
+        start_infer_event.record()
         y_true_test, probs_test = predict(test_loader)
+        end_infer_event.record()
+        
+        torch.cuda.synchronize()
+        infer_time_sec = start_infer_event.elapsed_time(end_infer_event) / 1000.0
 
         precisions, recalls, thresholds = precision_recall_curve(y_true_val, probs_val)
         # recalls = recalls[:-1]
@@ -427,12 +445,20 @@ for test_year in test_years:
         precision, recall, f1, _ = precision_recall_fscore_support(
             y_true_test, preds_test, labels=[0, 1], zero_division=0
         )
-
+        cm = confusion_matrix(y_true_test, preds_test, labels=[0, 1])
+        tn, fp, fn, tp = cm.ravel()
+        
         general_results[col_key]["Recall 0"] = round(recall[0], 2)
         general_results[col_key]["Recall 1"] = round(recall[1], 2)
         general_results[col_key]["Precision 0"] = round(precision[0], 2)
         general_results[col_key]["Precision 1"] = round(precision[1], 2)
-
+        general_results[col_key]["Train Time (s)"] = round(train_time_sec, 2)
+        general_results[col_key]["Infer Time (s)"] = round(infer_time_sec, 4)
+        general_results[col_key]["Peak VRAM (MB)"] = round(peak_vram_mb, 2)
+        general_results[col_key]["TN (True Neg)"] = tn
+        general_results[col_key]["FP (False Pos)"] = fp
+        general_results[col_key]["FN (False Neg)"] = fn
+        general_results[col_key]["TP (True Pos)"] = tp
 # =====================================================================
 # FINAL COMPILED TABLE GENERATION
 # =====================================================================
@@ -444,7 +470,11 @@ df_table = pd.DataFrame(general_results)
 df_table = df_table[sorted(df_table.columns)]
 
 ordered_crops = sorted([c for c in df_index["crop"].dropna().unique()])
-row_order = ordered_crops + ["Recall 0", "Recall 1", "Precision 0", "Precision 1"]
+row_order = ordered_crops + [
+    "Recall 0", "Recall 1", "Precision 0", "Precision 1",
+    "Train Time (s)", "Infer Time (s)", "Peak VRAM (MB)",
+    "TN (True Neg)", "FP (False Pos)", "FN (False Neg)", "TP (True Pos)"
+]
 
 df_table = df_table.reindex(row_order)
 df_table.columns.names = ["Year", "Seed"]

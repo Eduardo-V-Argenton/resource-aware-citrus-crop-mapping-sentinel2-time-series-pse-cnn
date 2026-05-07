@@ -9,6 +9,8 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import GroupShuffleSplit
 import joblib
+import time
+import tracemalloc
 
 INDEX_FILE = '/mnt/SSD_SATA/dataset/dataset_index.csv'
 # ML_FEATURES_FILE = 'dataset/dataset_ml_bands_indexes.csv' 
@@ -100,6 +102,8 @@ for test_year in test_years:
 
         print(f"Training XGBoost on {len(X_train)} samples (scale_pos_weight: {peso_citrus:.2f})...")
         
+        tracemalloc.start()
+        start_train = time.perf_counter()
         model = XGBClassifier(
             n_estimators=500, 
             max_depth=8,             
@@ -111,9 +115,15 @@ for test_year in test_years:
         )
         
         model.fit(X_train, y_train)
-
+        train_time = time.perf_counter() - start_train
+        current_mem, peak_mem = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        peak_memory_mb = peak_mem / (1024 * 1024)
+        
         probs_val = model.predict_proba(X_val)[:, 1]
+        start_infer = time.perf_counter()
         probs_test = model.predict_proba(X_test)[:, 1]
+        infer_time = time.perf_counter() - start_infer
 
         precisions, recalls, thresholds = precision_recall_curve(y_val, probs_val)
         # recalls = recalls[:-1]
@@ -195,7 +205,9 @@ for test_year in test_years:
         general_results[col_key]["Recall 1"] = round(recall[1], 2)
         general_results[col_key]["Precision 0"] = round(precision[0], 2)
         general_results[col_key]["Precision 1"] = round(precision[1], 2)
-
+        general_results[col_key]["Train Time (s)"] = round(train_time, 2)
+        general_results[col_key]["Infer Time (s)"] = round(infer_time, 4)
+        general_results[col_key]["Peak Mem (MB)"] = round(peak_memory_mb, 2)
 # =====================================================================
 # FINAL COMPILED TABLE GENERATION
 # =====================================================================
@@ -207,7 +219,10 @@ df_table = pd.DataFrame(general_results)
 df_table = df_table[sorted(df_table.columns)]
 
 ordered_crops = sorted([c for c in df_merged["crop"].dropna().unique()])
-row_order = ordered_crops + ["Recall 0", "Recall 1", "Precision 0", "Precision 1"]
+row_order = ordered_crops + [
+    "Recall 0", "Recall 1", "Precision 0", "Precision 1", 
+    "Train Time (s)", "Infer Time (s)", "Peak Mem (MB)"
+]
 
 df_table = df_table.reindex(row_order)
 df_table.columns.names = ["Year", "Seed"]

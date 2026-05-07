@@ -70,12 +70,12 @@ df_results = pd.DataFrame(data_list)
 # =====================================================================
 plt.rcParams['font.family'] = 'serif'
 
-fig = plt.figure(figsize=(15, 12))
-gs = gridspec.GridSpec(2, 2, figure=fig, hspace=0.30, wspace=0.2)
+fig = plt.figure(figsize=(15, 5))
+gs = gridspec.GridSpec(1, 3, figure=fig, wspace=0.15)
 
-ax_f1 = fig.add_subplot(gs[0, :])
-ax_prec = fig.add_subplot(gs[1, 0])
-ax_rec = fig.add_subplot(gs[1, 1])
+ax_f1 = fig.add_subplot(gs[0, 0])
+ax_prec = fig.add_subplot(gs[0, 1])
+ax_rec = fig.add_subplot(gs[0, 2])
 
 metrics = [
     ("F1-Score", ax_f1, "(a)"),
@@ -170,14 +170,20 @@ for model_name in models:
 fig.legend(
     handles=legend_handles,
     loc='upper center',
-    bbox_to_anchor=(0.5, 0.06), 
+    bbox_to_anchor=(0.5, 0.05), 
     ncol=4,
     frameon=False, 
     fontsize=13
 )
 
-plt.tight_layout(rect=[0, 0.12, 1, 0.98])
-
+fig.subplots_adjust(
+    top=0.92,
+    bottom=0.1,
+    left=0.06,
+    right=0.98,
+    hspace=0.08,
+    wspace=0.12
+)
 output_dir = "figures/charts/exported"
 os.makedirs(output_dir, exist_ok=True)
 output_path = os.path.join(output_dir, "classification_report.png")
