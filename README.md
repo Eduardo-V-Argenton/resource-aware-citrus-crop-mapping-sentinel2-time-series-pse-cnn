@@ -18,8 +18,28 @@ This repository contains the codebase, generated charts, and evaluation metrics 
 
 ---
 
+## 🗺️ Study Area & Dataset
+
+The study focuses on the immediate geographic regions of São João da Boa Vista and Mogi Guaçu in the state of São Paulo, Brazil—a highly relevant and fragmented agricultural landscape.
+
+![Study Area and Crop Distribution](figures/map_crop_dist.png)
+
+---
+
+## 🧠 Proposed Architecture (PSE-CNN)
+
+To address the challenges of cloud contamination and irregular parcel shapes without relying on heavy dense-image grids, we propose a lightweight **Spatio-Temporal Pixel-Set Encoder Convolutional Neural Network (PSE-CNN)**. 
+
+The architecture samples a set of pixels from each agricultural parcel, encodes their spatial/spectral features, and uses a 1D Temporal Convolutional network to extract the phenological signatures across the Sentinel-2 time series.
+
+![PSE-CNN Model Architecture](figures/flowcharts/exported/model.png)
+
+---
+
 ## 📊 Key Results
 
-The model's stable temporal predictive behavior are detailed in the comprehensive metrics dashboard:
+The model's robust performance against severe class imbalance and its stable temporal predictive behavior are detailed in the comprehensive metrics dashboard below:
 
 ![Comprehensive Metrics Dashboard](figures/charts/exported/comprehensive_metrics_dashboard.png)
+
+---
