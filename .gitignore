@@ -216,3 +216,6 @@ pyrightconfig.json
 dataset/*.csv
 *.joblib
 .$*.bkp
+eda/RG2017_rgi_20180911
+eda/regioes_geograficas_composicao_por_municipios_2017_20180911.ods
+dataset/SP_RGI_2024

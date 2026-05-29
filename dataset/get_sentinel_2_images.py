@@ -19,7 +19,7 @@ warnings.filterwarnings("ignore")
 # =====================================================================
 # Configs
 # =====================================================================
-PROJECT_GEE = 'automatic-honor-493816-v0' 
+PROJECT_GEE = 'clean-bindery-462116-u8' 
 
 print("-> Connecting to Google Earth Engine...")
 try:
@@ -28,19 +28,16 @@ except Exception:
     ee.Authenticate()
     ee.Initialize(project=PROJECT_GEE, opt_url='https://earthengine-highvolume.googleapis.com')
 
-shp_files = 'dataset/SP_MUN_2024/SP_Municipios_2024.shp'
-output_folder = '/mnt/SSD_SATA/dataset/Tensores_Treino/'
-csv_output = '/mnt/SSD_SATA/dataset/dataset_index.csv'
+output_folder = 'dataset/dataset'
+csv_output = 'dataset/dataset_index.csv'
 os.makedirs(output_folder, exist_ok=True)
 csv_lock = threading.Lock()
 
-cities = [
-    'Aguaí', 'Águas da Prata', 'Casa Branca', 'Espírito Santo do Pinhal', 
-    'Santa Cruz das Palmeiras', 'Santo Antônio do Jardim', 'São João da Boa Vista', 
-    'Tambaú', 'Vargem Grande do Sul', 'Estiva Gerbi', 'Itapira', 'Mogi Guaçu', 'Mogi Mirim'
-]
-
-crops = {47: 'Citrus', 20: 'Cana-de-açúcar', 46: 'Café', 15: 'Pastagem', 9: 'Silvicultura', 39: 'Soja', 3: 'Formação Florestal', 11: 'Campo Alagado'}
+error_lock = threading.Lock()
+consecutive_errors = 0
+MAX_CONSECUTIVE_ERRORS = 15 
+circuit_breaker = threading.Event()
+circuit_breaker.set() 
 
 # =====================================================================
 # SELF-HEALING
@@ -90,8 +87,9 @@ def download_gee(geom_geojson, year, part_name, max_tries=3):
     dates = pd.date_range(start=f'{year}-01-01', end=f'{year}-12-31', freq='15D')
     
     NODATA_VALUE = -9999
-    base_10m = ee.Image.constant([NODATA_VALUE]*4).rename(['B2', 'B3', 'B4', 'B8']).toFloat()
-    base_20m = ee.Image.constant([NODATA_VALUE]*6).rename(['B5', 'B6', 'B7', 'B8A', 'B11', 'B12']).toFloat()
+    base_10m = ee.Image.constant([NODATA_VALUE]*4).rename(['B2', 'B3', 'B4', 'B8']).toInt16()
+    base_20m = ee.Image.constant([NODATA_VALUE]*6).rename(['B5', 'B6', 'B7', 'B8A', 'B11', 'B12']).toInt16()
+    
 
     list_10m, list_20m = [], []
 
@@ -111,8 +109,8 @@ def download_gee(geom_geojson, year, part_name, max_tries=3):
         
         def processar(col_valida):
             median = col_valida.map(mask_scl).median()
-            img_10 = median.select(['B2', 'B3', 'B4', 'B8']).unmask(0).clip(geom).unmask(NODATA_VALUE).toFloat()
-            img_20 = median.select(['B5', 'B6', 'B7', 'B8A', 'B11', 'B12']).unmask(0).clip(geom).unmask(NODATA_VALUE).toFloat()
+            img_10 = median.select(['B2', 'B3', 'B4', 'B8']).unmask(0).clip(geom).unmask(NODATA_VALUE).toInt16()
+            img_20 = median.select(['B5', 'B6', 'B7', 'B8A', 'B11', 'B12']).unmask(0).clip(geom).unmask(NODATA_VALUE).toInt16()
             return ee.Dictionary({'10m': img_10, '20m': img_20})
             
         res = ee.Algorithms.If(col.size().gt(0), processar(col), ee.Dictionary({'10m': base_10m, '20m': base_20m}))
@@ -148,13 +146,47 @@ def download_gee(geom_geojson, year, part_name, max_tries=3):
             tensor_10m[tensor_10m == NODATA_VALUE] = 0
             tensor_20m[tensor_20m == NODATA_VALUE] = 0
             
-            return tensor_10m, tensor_20m
+            b2_temporal = tensor_10m[:, 0, :, :] 
+                        
+            volume_total = b2_temporal.size 
+            
+            pixels_valid = np.count_nonzero(b2_temporal > 0)
+            
+            mask_outside_polygon = np.all(b2_temporal == 0, axis=0) 
+            pixels_padding = np.count_nonzero(mask_outside_polygon) * num_periodos
+            
+            pixels_zeros_total = volume_total - pixels_valid
+            pixels_cloud_scl = pixels_zeros_total - pixels_padding
+
+            prop_valid = round((pixels_valid / volume_total) * 100, 2)
+            prop_padding = round((pixels_padding / volume_total) * 100, 2)
+            prop_scl = round((pixels_cloud_scl / volume_total) * 100, 2)
+            
+            metrics = {
+                'prop_valid_%': prop_valid,
+                'prop_padding_%': prop_padding,
+                'prop_scl_%': prop_scl
+            }
+            return tensor_10m, tensor_20m, metrics
 
         except Exception as e:
-            print(f"      [WARNING] Attempt {attempt+1}/3 to {part_name} failed: {str(e)}...")
-            time.sleep((2 ** attempt) + random.uniform(0, 1))
+            error_msg = str(e).lower()
+                        
+            if 'user memory limit' in error_msg or 'payload too large' in error_msg or 'computed value is too large' in error_msg:
+                print(f"      [FATAL] GEE recusou {part_name} (Muito pesado/Complexo). Pulando...")
+                return None, None, {}
+            
+            if 'quota' in error_msg or 'too many concurrent' in error_msg or '429' in error_msg:
+                sleep_time = 60 + random.uniform(5, 15)
+                print(f"      [QUOTA] GEE lotado. {part_name} pausando {sleep_time:.0f}s...")
+            
+            else:
+                sleep_time = (5 ** attempt) + random.uniform(1, 5)
+                print(f"      [WARNING] {part_name} falhou ({attempt+1}/{max_tries}). Retentando em {sleep_time:.0f}s...")
+                
+            time.sleep(sleep_time)
 
-    return None, None
+    return None, None, {}
 
 # =====================================================================
 # Process
@@ -202,29 +234,57 @@ def process_polygon(index, row, year):
             results.append({'status': 'skipped', 'name': name})
             continue
 
-        tensor_10m, tensor_20m = download_gee(mapping(geom_piece), year, name)
+        if not circuit_breaker.is_set():
+            circuit_breaker.wait()
+
+        
+        tensor_10m, tensor_20m, metrics = download_gee(mapping(geom_piece), year, name)
+
+        global consecutive_errors
         
         if tensor_10m is not None and tensor_10m.shape[2] > 0 and tensor_20m is not None and tensor_20m.shape[2] > 0:
-            np.save(os.path.join(output_folder, f"{name}_10m.npy"), tensor_10m)
-            np.save(os.path.join(output_folder, f"{name}_20m.npy"), tensor_20m)
+            tensor_10m = tensor_10m.astype(np.int16)
+            tensor_20m = tensor_20m.astype(np.int16)
             
+            np.savez_compressed(os.path.join(output_folder, f"{name}_10m.npz"), tensor=tensor_10m)
+            np.savez_compressed(os.path.join(output_folder, f"{name}_20m.npz"), tensor=tensor_20m)
+
+            with error_lock:
+                consecutive_errors = 0
+                            
             results.append({
                 'status': 'success', 
                 'name': name,
                 'data': {
                     'id': f"loc_{round(geom_piece.centroid.x, 4)}_{round(geom_piece.centroid.y, 4)}", 
                     'name': name, 
-                    'label_ia': row['label'],             
                     'mapbiomas_class': row['mapbiomas_class'], 
-                    'crop': crops.get(row['mapbiomas_class'], 'Other'),       
-                    'city': str(row.get('NM_MUN', 'Unknown')),
-                    'ano': year,
+                    'year': year,
                     'area_ha': round(row['area_ha'], 2),
                     'is_piece': is_piece,
-                    'total_pixels': tensor_10m.shape[2] * tensor_10m.shape[3]
+                    'total_pixels': tensor_10m.shape[2] * tensor_10m.shape[3],
+                    'valids_%': metrics['prop_valid_%'],
+                    'padding_box_%': metrics['prop_padding_%'],
+                    'cloud_scl_%': metrics['prop_scl_%']
                 }
             })
         else:
+            with error_lock:
+                consecutive_errors += 1
+                if consecutive_errors >= MAX_CONSECUTIVE_ERRORS and circuit_breaker.is_set():
+                    print(f"\n[!!!] CIRCUIT BREAKER ACIONADO! {consecutive_errors} erros seguidos.")
+                    print("[!!!] A API do Earth Engine pode ter te bloqueado. Pausando TODAS as threads por 5 minutos...\n")
+                    circuit_breaker.clear() 
+                    
+                    def reset_breaker():
+                        time.sleep(300)
+                        global consecutive_errors
+                        consecutive_errors = 0
+                        print("\n[OK] Retomando os downloads...\n")
+                        circuit_breaker.set()
+                        
+                    threading.Thread(target=reset_breaker).start()
+
             results.append({'status': 'error', 'name': name})
 
     return results
