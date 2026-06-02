@@ -20,6 +20,7 @@ warnings.filterwarnings("ignore")
 # Configs
 # =====================================================================
 PROJECT_GEE = 'clean-bindery-462116-u8' 
+#PROJECT_GEE = 'automatic-honor-493816-v0'
 
 print("-> Connecting to Google Earth Engine...")
 try:
@@ -28,8 +29,8 @@ except Exception:
     ee.Authenticate()
     ee.Initialize(project=PROJECT_GEE, opt_url='https://earthengine-highvolume.googleapis.com')
 
-output_folder = 'dataset/dataset'
-csv_output = 'dataset/dataset_index.csv'
+output_folder = '/mnt/ssd_sata/dataset'
+csv_output = '/mnt/ssd_sata/dataset/dataset_index.csv'
 os.makedirs(output_folder, exist_ok=True)
 csv_lock = threading.Lock()
 
@@ -50,7 +51,7 @@ if os.path.exists(csv_output):
         df_audit = pd.read_csv(csv_output)
         
         def validate_tensors(nome):
-            c10, c20 = os.path.join(output_folder, f"{nome}_10m.npy"), os.path.join(output_folder, f"{nome}_20m.npy")
+            c10, c20 = os.path.join(output_folder, f"{nome}_10m.npz"), os.path.join(output_folder, f"{nome}_20m.npz")
             return os.path.exists(c10) and os.path.getsize(c10) > 1000 and os.path.exists(c20) and os.path.getsize(c20) > 1000
 
         print(" -> Verifying tensor integrity for entries in CSV...")
@@ -65,8 +66,8 @@ if os.path.exists(csv_output):
         on_disk_files = os.listdir(output_folder)
         removed = 0
         for f in on_disk_files:
-            if f.endswith('.npy'):
-                base_file_name = f.replace('_10m.npy', '').replace('_20m.npy', '')
+            if f.endswith('.npz'):
+                base_file_name = f.replace('_10m.npz', '').replace('_20m.npz', '')
                 if base_file_name not in processed:
                     os.remove(os.path.join(output_folder, f))
                     removed += 1

@@ -6,7 +6,7 @@ import numpy as np
 import geopandas as gpd
 import rasterio
 from rasterio.mask import mask
-from rasterio.features import shapes
+from rasterio.features import shapes,sieve
 
 warnings.filterwarnings("ignore")
 
@@ -18,12 +18,12 @@ output_dir = 'dataset/GPKG/'
 sp_shp = 'dataset/SP_RGI_2024/SP_RG_Imediatas_2024.shp'
 
 os.makedirs(output_dir, exist_ok=True)
-min_area_ha = 1.0
+min_area_ha = 3.0
 
 #Mapbiomas dict
 classes_remove = [0,22,23,24,30,75,25,26,33,31,27]
 rgi = [
-    'São João da Boa Vista', 'Catanduva', 'Ourinhos'
+    'Mogi Guaçu', 'Catanduva'
 ]
 
 # =====================================================================
@@ -51,6 +51,13 @@ for file in files:
             print(" -> Clipping raster by city mask")
             out_image, out_transform = mask(src, target_geometry, crop=True)
             clipped_image = out_image[0]
+            print(" -> Applying Sieve Filter (Smoothing raster noise)...")
+            pixels_minimos = int((min_area_ha * 10000) / (30 * 30))
+            sieved_image = sieve(
+                clipped_image.astype(rasterio.int32), 
+                size=pixels_minimos, 
+                connectivity=4
+            )
             
             # Create a mask with only the target classes
             print(" -> Reclassifying and cleaning noises")
@@ -59,7 +66,7 @@ for file in files:
             #  Vectorize polygons
             print(" -> Vectorizing")
             polygon_generator = shapes(
-                clipped_image.astype('uint8'), 
+            sieved_image.astype('uint8'), 
                 mask=valid_mask,
                 transform=out_transform
             )

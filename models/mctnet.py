@@ -1,5 +1,6 @@
 import copy
 import os
+import math
 
 import numpy as np
 import pandas as pd
@@ -15,17 +16,14 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import GroupShuffleSplit
 from torch.utils.data import DataLoader, Dataset
-from torch.utils.data import WeightedRandomSampler
 from tqdm import tqdm
 
-from codecarbon import EmissionsTracker
-import time
 torch.set_float32_matmul_precision('high')
 
 # =====================================================================
 # INITIAL CONFIGURATIONS AND DIRECTORY CREATION FOR THE PAPER
 # =====================================================================
-INDEX_FILE = '/mnt/ssd_sata/dataset/dataset_index.csv'
+INDEX_FILE = '/mnt/SSD_SATA/dataset/dataset_index.csv'
 TENSORS_FOLDER = "dataset/Tensors/"  
 TARGET_COLUMN = "label_ia"
 INPUT_CHANNELS = 10
@@ -44,7 +42,7 @@ os.makedirs(os.path.join(BASE_RESULTS_DIR, "raw_predictions"), exist_ok=True)
 os.makedirs(os.path.join(BASE_RESULTS_DIR, "batch_tracking"), exist_ok=True)
 
 # -------------------------------------------------------------------------
-# 1. PSE DATALOADER
+# 1. PSE DATALOADER (MANTIDO INTACTO)
 # -------------------------------------------------------------------------
 class PSEDataset(Dataset):
     def __init__(self, base_names_list, labels, folder, samples=64, is_train=False):
@@ -71,100 +69,176 @@ class PSEDataset(Dataset):
         
         if self.is_train and np.random.rand() > 0.5:
             t_idx = np.random.randint(0, sampled_tensor.shape[0])
-            sampled_tensor[t_idx, :, :] = 0
+            sampled_tensor[t_idx, :, :] = 0.0
             
-        final_tensor = torch.from_numpy(sampled_tensor.astype(np.float32) / 10000.0)
+        final_tensor = torch.from_numpy(sampled_tensor.astype(np.float32))
         
         return final_tensor, torch.tensor([label], dtype=torch.float32), base_name
 
-
 # -------------------------------------------------------------------------
-# 2. PIXEL-SET ENCODER + TEMPORAL ARCHITECTURE
+# 2. MCTNET ARCHITECTURE (IMPLEMENTAÇÃO FIEL AO ARTIGO)
 # -------------------------------------------------------------------------
-class PSE_CNN(nn.Module):
-    def __init__(self, in_channels=10): 
-        super(PSE_CNN, self).__init__()
-
-        self.input_norm = nn.LayerNorm(in_channels) 
+class ALPE(nn.Module):
+    def __init__(self, d_model, max_len=36):
+        super(ALPE, self).__init__()
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        self.register_buffer('pe', pe.unsqueeze(0).transpose(1, 2))
         
-        self.spatial_mlp1 = nn.Conv1d(in_channels, 32, kernel_size=1)
-        self.spatial_bn1 = nn.BatchNorm1d(32)
+        self.conv1d = nn.Conv1d(in_channels=d_model, out_channels=d_model, kernel_size=3, padding=1)
+        self.avg_pool = nn.AdaptiveAvgPool1d(1)
+        self.eca_conv = nn.Conv1d(1, 1, kernel_size=3, padding=1, bias=False)
+        self.sigmoid = nn.Sigmoid()
 
-        self.spatial_mlp2 = nn.Conv1d(32, 64, kernel_size=1)
-        self.spatial_bn2 = nn.BatchNorm1d(64)
+    def forward(self, x, missing_mask):
+        B, C, T = x.size()
+        pe_masked = self.pe[:, :, :T] * missing_mask
+        out = self.conv1d(pe_masked)
+        
+        y = self.avg_pool(out).transpose(1, 2)
+        y = self.eca_conv(y).transpose(1, 2)
+        y = self.sigmoid(y)
+        
+        alpe_pos = out * y
+        return alpe_pos
 
-        self.temporal_conv = nn.Sequential(
-            nn.Conv1d(128, 64, kernel_size=3, padding=1),
-            nn.BatchNorm1d(64),
-            nn.GELU(),
-            nn.MaxPool1d(2),
-            nn.Conv1d(64, 128, kernel_size=3, padding=1),
-            nn.BatchNorm1d(128),
-            nn.GELU(),
-            nn.AdaptiveAvgPool1d(1),
-        )
-
-        self.classifier = nn.Sequential(
-            nn.Linear(128, 32), 
-            nn.GELU(), 
-            nn.Dropout(0.4), 
-            nn.Linear(32, 1)
-        )
+class CNNSubModule(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=3):
+        super(CNNSubModule, self).__init__()
+        padding = kernel_size // 2
+        self.conv1 = nn.Conv1d(in_channels, out_channels, kernel_size, padding=padding)
+        self.bn1 = nn.BatchNorm1d(out_channels)
+        self.conv2 = nn.Conv1d(out_channels, out_channels, kernel_size, padding=padding)
+        self.bn2 = nn.BatchNorm1d(out_channels)
+        self.relu = nn.ReLU()
+        
+        self.shortcut = nn.Sequential()
+        if in_channels != out_channels:
+            self.shortcut = nn.Sequential(
+                nn.Conv1d(in_channels, out_channels, kernel_size=1),
+                nn.BatchNorm1d(out_channels)
+            )
 
     def forward(self, x):
-        B, T, C, S = x.size()
+        res = self.shortcut(x)
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out += res
+        return self.relu(out)
+
+class TransformerSubModule(nn.Module):
+    def __init__(self, d_model, n_head=5, is_first_stage=False):
+        super(TransformerSubModule, self).__init__()
+        self.is_first_stage = is_first_stage
         
-        x = x.permute(0, 1, 3, 2) # [B, T, S, C]
-        x = self.input_norm(x)
-        x = x.permute(0, 1, 3, 2).reshape(B * T, C, S)
-                  
-        x = F.gelu(self.spatial_bn1(self.spatial_mlp1(x)))
-        x = F.gelu(self.spatial_bn2(self.spatial_mlp2(x)))
+        if is_first_stage:
+            self.alpe = ALPE(d_model=d_model)
+            
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=d_model, nhead=n_head, dim_feedforward=d_model * 2, batch_first=True
+        )
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=1)
 
-        x_max = torch.max(x, dim=2)[0]
-        x_mean = torch.mean(x, dim=2)
-        x_pooled = torch.cat([x_max, x_mean], dim=1) 
-
-        x_temp = x_pooled.view(B, T, -1).permute(0, 2, 1)
+    def forward(self, x, missing_mask=None):
+        x_transposed = x.transpose(1, 2)
         
-        x_temp = self.temporal_conv(x_temp) 
+        if self.is_first_stage and missing_mask is not None:
+            pos_encoding = self.alpe(x, missing_mask).transpose(1, 2)
+            x_transposed = x_transposed + pos_encoding
+            
+        out = self.transformer_encoder(x_transposed)
+        return out.transpose(1, 2)
+
+class CTFusion(nn.Module):
+    def __init__(self, in_channels, out_channels, n_head=5, is_first_stage=False):
+        super(CTFusion, self).__init__()
+        sub_out_channels = out_channels // 2
         
-        x_flat = x_temp.view(B, -1)
-        out = self.classifier(x_flat)
+        self.cnn_sub = CNNSubModule(in_channels, sub_out_channels)
+        self.trans_sub = TransformerSubModule(in_channels, n_head=n_head, is_first_stage=is_first_stage)
+        self.trans_proj = nn.Conv1d(in_channels, sub_out_channels, kernel_size=1) if in_channels != sub_out_channels else nn.Identity()
 
-        return out
+    def forward(self, x, missing_mask=None):
+        cnn_features = self.cnn_sub(x)
+        trans_features = self.trans_proj(self.trans_sub(x, missing_mask))
+        return torch.cat([cnn_features, trans_features], dim=1)
 
+class MCTNet(nn.Module):
+    def __init__(self, in_features=10, num_classes=1, n_head=5):
+        super(MCTNet, self).__init__()
+        self.stage1 = CTFusion(in_channels=in_features, out_channels=20, n_head=n_head, is_first_stage=True)
+        self.pool1 = nn.MaxPool1d(kernel_size=2)
+        self.stage2 = CTFusion(in_channels=20, out_channels=40, n_head=n_head, is_first_stage=False)
+        self.pool2 = nn.MaxPool1d(kernel_size=2)
+        self.stage3 = CTFusion(in_channels=40, out_channels=80, n_head=n_head, is_first_stage=False)
+        
+        self.global_pool = nn.AdaptiveMaxPool1d(1)
+        self.mlp = nn.Sequential(
+            nn.Linear(80, num_classes)
+        )
 
+    def forward(self, x, missing_mask):
+        out = self.pool1(self.stage1(x, missing_mask))
+        out = self.pool2(self.stage2(out))
+        out = self.stage3(out)
+        out = self.global_pool(out).squeeze(-1)
+        return self.mlp(out)
+
+# -------------------------------------------------------------------------
+# 2.5 MCTNET WRAPPER PARA COMPATIBILIDADE COM O PSE DATALOADER
+# -------------------------------------------------------------------------
+class MCTNetWrapper(nn.Module):
+    def __init__(self, in_channels=10, num_classes=1):
+        super(MCTNetWrapper, self).__init__()
+        self.mctnet = MCTNet(in_features=in_channels, num_classes=num_classes, n_head=5)
+
+    def forward(self, x):
+        # Entrada vinda do Dataloader: [B, T, C, S]
+        # 1. Faz o pooling espacial (média) para converter a nuvem de pixels num "Super Pixel"
+        x_pixel = x.mean(dim=3) # Shape se torna [B, T, C]
+        
+        # 2. Reordena para o padrão MCTNet: [B, C, T]
+        x_pixel = x_pixel.permute(0, 2, 1) 
+        
+        # 3. Gera dinamicamente a máscara de dados faltantes (Input 2)
+        # Se a soma absoluta dos canais em um instante T for 0, consideramos o dado como "missing" (0).
+        missing_mask = (x_pixel.abs().sum(dim=1, keepdim=True) > 1e-6).float() # Shape: [B, 1, T]
+        
+        return self.mctnet(x_pixel, missing_mask)
+
+# -------------------------------------------------------------------------
+# 3. FUNÇÕES AUXILIARES
+# -------------------------------------------------------------------------
 def predict(loader, tta_steps=5):
     """Prediction function with Test-Time Augmentation (TTA)"""
     model.eval()
     y_true_final = []
     accumulated_probs = None
-    names_final = []
     
     with torch.no_grad():
         for step in range(tta_steps):
             y_true_step, probs_step = [], []
-            names_step = []
-            
-            for batch_x, batch_y, batch_names in loader:
+            for batch_x, batch_y, _ in loader:
+                # O Wrapper lida automaticamente com a extração da máscara e do reshape
                 batch_probs = torch.sigmoid(model(batch_x.to(device))).cpu().numpy()
                 probs_step.extend(batch_probs)
                 
                 if step == 0:
                     y_true_step.extend(batch_y.numpy())
-                    names_step.extend(batch_names)
             
             if step == 0:
                 accumulated_probs = np.array(probs_step)
                 y_true_final = np.array(y_true_step)
-                names_final = names_step
             else:
                 accumulated_probs += np.array(probs_step)
                 
     final_probs = accumulated_probs / tta_steps
-    return y_true_final.flatten(), final_probs.flatten(), names_final
-
+    return y_true_final.flatten(), final_probs.flatten()
 
 def extract_coordinates(id_str):
     parts = str(id_str).split('_')
@@ -173,10 +247,9 @@ def extract_coordinates(id_str):
     return np.nan, np.nan
     
 # -------------------------------------------------------------------------
-# 3. THE EXPERIMENT LOOP
+# 4. THE EXPERIMENT LOOP
 # -------------------------------------------------------------------------
 df_index = pd.read_csv(INDEX_FILE)
-df_index['label_ia'] = (df_index['mapbiomas_class'] == 47).astype(int)
 
 df_index['lon'], df_index['lat'] = zip(*df_index['id'].apply(extract_coordinates))
 DEGREE_RESOLUTION = 0.02 
@@ -206,10 +279,10 @@ existing_files = set([
 df_index = df_index[df_index["name"].isin(existing_files)].copy()
 
 test_years = [2024,2023]
-seeds = [42, 43, 44]
+seeds = [42, 43, 44, 45]
 
 BATCH_SIZE = 128
-EPOCHS = 5
+EPOCHS = 100
 PATIENCE = 20 
 
 general_results = {}
@@ -217,10 +290,10 @@ general_results = {}
 for test_year in test_years:
     print(f"\n{'=' * 80}\n UNSEEN TEST: YEAR {test_year} \n{'=' * 80}")
 
-    df_test_idx = df_index[df_index["year"] == test_year].copy()
+    df_test_idx = df_index[df_index["ano"] == test_year].copy()
     val_years = [test_year - 1, test_year - 2]
     
-    df_rest = df_index[~df_index["year"].isin([test_year])].copy()
+    df_rest = df_index[~df_index["ano"].isin([test_year])].copy()
 
     for seed in seeds:
         print(f"\n{'-' * 50}\n RUN: Seed {seed}\n{'-' * 50}")
@@ -239,8 +312,8 @@ for test_year in test_years:
         df_train_pool = df_rest.iloc[train_idx].copy()
         df_val_pool = df_rest.iloc[val_idx].copy()
         
-        df_train = df_train_pool[~df_train_pool["year"].isin(val_years)].copy()
-        df_val = df_val_pool[df_val_pool["year"].isin(val_years)].copy()
+        df_train = df_train_pool[~df_train_pool["ano"].isin(val_years)].copy()
+        df_val = df_val_pool[df_val_pool["ano"].isin(val_years)].copy()
         df_train = df_train.sample(frac=1.0, random_state=seed).reset_index(drop=True)
         df_val = df_val.sample(frac=1.0, random_state=seed).reset_index(drop=True)
 
@@ -257,34 +330,20 @@ for test_year in test_years:
             TENSORS_FOLDER, samples=S_SAMPLES
         )
 
-        num_negatives = len(df_train[df_train[TARGET_COLUMN] == 0])
-        num_positives = len(df_train[df_train[TARGET_COLUMN] == 1])
-
-        weight_negative = 1.0 / num_negatives
-        weight_positive = 1.0 / num_positives
-
-        sample_weights = []
-        for label in df_train[TARGET_COLUMN]:
-            if label == 1:
-                sample_weights.append(weight_positive)
-            else:
-                sample_weights.append(weight_negative)
-
-        sample_weights = torch.tensor(sample_weights, dtype=torch.double)
-
-        sampler = WeightedRandomSampler(
-            weights=sample_weights, 
-            num_samples=len(sample_weights), 
-            replacement=True
-        )
-
-        train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=False, sampler=sampler,  num_workers=4, pin_memory=True)
+        train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=4, pin_memory=True)
         val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=2, pin_memory=True)
         test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=2, pin_memory=True)
 
-        model = PSE_CNN(in_channels=INPUT_CHANNELS).to(device)
+        # ---------------------------------------------------------------------
+        # INSTANCIAÇÃO DA MCTNET EM VEZ DA PhenologyPSE
+        # ---------------------------------------------------------------------
+        model = MCTNetWrapper(in_channels=INPUT_CHANNELS, num_classes=1).to(device)
 
-        criterion = nn.BCEWithLogitsLoss().to(device)
+        num_negatives = len(df_train[df_train[TARGET_COLUMN] == 0])
+        num_positives = len(df_train[df_train[TARGET_COLUMN] == 1])
+        citrus_weight = torch.tensor([num_negatives / num_positives], dtype=torch.float32).to(device)
+
+        criterion = nn.BCEWithLogitsLoss(pos_weight=citrus_weight).to(device)
         
         optimizer = optim.RAdam(model.parameters(), lr=1e-4, weight_decay=1e-3)
         scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
@@ -298,17 +357,9 @@ for test_year in test_years:
         epochs_no_improve = 0
         best_model_wts = copy.deepcopy(model.state_dict())
         
-        # Dictionary to track model evolution for generating charts
         training_history = {"epoch": [], "train_loss": [], "val_loss": []}
         
         batch_tracking = []
-        tracker = EmissionsTracker(
-            project_name=f"crop_y{test_year}_s{seed}",
-            output_dir=BASE_RESULTS_DIR,
-            log_level="error"
-        )
-        
-        tracker.start()
         torch.cuda.reset_peak_memory_stats()
         torch.cuda.synchronize()
         start_train_event = torch.cuda.Event(enable_timing=True)
@@ -361,7 +412,6 @@ for test_year in test_years:
             val_epoch_loss = val_loss / len(val_loader.dataset)
             scheduler.step()
             
-            # Saving data to history
             training_history["epoch"].append(epoch + 1)
             training_history["train_loss"].append(epoch_loss)
             training_history["val_loss"].append(val_epoch_loss)
@@ -385,39 +435,31 @@ for test_year in test_years:
         torch.cuda.synchronize() 
         train_time_sec = start_train_event.elapsed_time(end_train_event) / 1000.0
         peak_vram_mb = torch.cuda.max_memory_allocated() / (1024 * 1024)
+        
         # =====================================================================
         # EXPORTING ARTIFACTS AND RESULTS
         # =====================================================================
         print("\nLoading best weights to generate metrics and export data...")
         model.load_state_dict(best_model_wts)
         
-        # 1. Save the trained model weights
         model_path = os.path.join(BASE_RESULTS_DIR, "models", f"weights_year_{test_year}_seed_{seed}.pth")
         torch.save(best_model_wts, model_path)
         
-        # 2. Save learning history (Loss)
         df_history = pd.DataFrame(training_history)
         df_history.to_csv(os.path.join(BASE_RESULTS_DIR, "loss_history", f"loss_year_{test_year}_seed_{seed}.csv"), index=False)
 
-        y_true_val, probs_val, _ = predict(val_loader)
+        y_true_val, probs_val = predict(val_loader)
         torch.cuda.synchronize()
         start_infer_event = torch.cuda.Event(enable_timing=True)
         end_infer_event = torch.cuda.Event(enable_timing=True)
         
         start_infer_event.record()
-        y_true_test, probs_test, names_test = predict(test_loader)
+        y_true_test, probs_test = predict(test_loader)
         end_infer_event.record()
         
         torch.cuda.synchronize()
         infer_time_sec = start_infer_event.elapsed_time(end_infer_event) / 1000.0
-        
-        emissions_kg_co2 = tracker.stop()
-        energy_kwh = tracker.final_emissions_data.energy_consumed
 
-        total_test_samples = len(test_loader.dataset)
-
-        infer_time_per_1k = (infer_time_sec / total_test_samples) * 1000
-        
         precisions, recalls, thresholds = precision_recall_curve(y_true_val, probs_val)
         
         f1_scores = 2 * (precisions * recalls) / (precisions + recalls + 1e-8)
@@ -428,7 +470,6 @@ for test_year in test_years:
         preds_val = (probs_val >= optimal_threshold).astype(int)
         preds_test = (probs_test >= optimal_threshold).astype(int)
 
-        # 3. Extract and save scikit-learn reports as CSV
         report_val_dict = classification_report(y_true_val, preds_val, zero_division=0, output_dict=True)
         report_test_dict = classification_report(y_true_test, preds_test, zero_division=0, output_dict=True)
         
@@ -439,9 +480,7 @@ for test_year in test_years:
             os.path.join(BASE_RESULTS_DIR, "classification_reports", f"test_year_{test_year}_seed_{seed}.csv")
         )
 
-        # 4. Save raw predictions (Ground Truth vs Real Probability vs Final Prediction)
         df_raw_preds = pd.DataFrame({
-            "id_sample": names_test,
             "y_true": y_true_test,
             "model_probability": probs_test,
             "final_threshold_prediction": preds_test
@@ -465,9 +504,9 @@ for test_year in test_years:
         col_key = (test_year, seed)
         general_results[col_key] = {}
 
-        for crop, crop_data in df_test_current.groupby("mapbiomas_class"):
+        for crop, crop_data in df_test_current.groupby("crop"):
             total = len(crop_data)
-            real_target = 1 if crop == "47" else 0
+            real_target = 1 if crop == "Citrus" else 0
             hits = (crop_data["AI_prediction"] == real_target).sum()
             accuracy_rate = (hits / total) * 100
             general_results[col_key][crop] = f"{hits}/{total} ({accuracy_rate:.1f}%)"
@@ -484,15 +523,12 @@ for test_year in test_years:
         general_results[col_key]["Precision 1"] = round(precision[1], 2)
         general_results[col_key]["Train Time (s)"] = round(train_time_sec, 2)
         general_results[col_key]["Infer Time (s)"] = round(infer_time_sec, 4)
-        general_results[col_key]["Train Time / 1k (s)"] = round(train_time_per_1k, 4)
-        general_results[col_key]["Infer Time / 1k (s)"] = round(infer_time_per_1k, 4)
-        general_results[col_key]["Energy (kWh)"] = round(energy_kwh, 6)
-        general_results[col_key]["Emissions (kgCO2eq)"] = round(emissions_kg_co2, 6)
         general_results[col_key]["Peak VRAM (MB)"] = round(peak_vram_mb, 2)
         general_results[col_key]["TN (True Neg)"] = tn
         general_results[col_key]["FP (False Pos)"] = fp
         general_results[col_key]["FN (False Neg)"] = fn
         general_results[col_key]["TP (True Pos)"] = tp
+        
 # =====================================================================
 # FINAL COMPILED TABLE GENERATION
 # =====================================================================
@@ -506,8 +542,7 @@ df_table = df_table[sorted(df_table.columns)]
 ordered_crops = sorted([c for c in df_index["crop"].dropna().unique()])
 row_order = ordered_crops + [
     "Recall 0", "Recall 1", "Precision 0", "Precision 1",
-    "Train Time / 1k (s)", "Infer Time / 1k (s)", 
-    "Peak VRAM (MB)", "Energy (kWh)", "Emissions (kgCO2eq)",
+    "Train Time (s)", "Infer Time (s)", "Peak VRAM (MB)",
     "TN (True Neg)", "FP (False Pos)", "FN (False Neg)", "TP (True Pos)"
 ]
 
