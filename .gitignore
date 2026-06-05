@@ -218,3 +218,4 @@ pyrightconfig.json
 eda/RG2017_rgi_20180911
 eda/regioes_geografica*
 dataset/SP*
+dataset/dataset*.csv
