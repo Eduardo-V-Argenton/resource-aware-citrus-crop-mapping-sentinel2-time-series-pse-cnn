@@ -5,15 +5,12 @@ import torch
 from tqdm import tqdm
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import warnings
-from generate_tensors import load_and_clean_tensor
 
 warnings.filterwarnings("ignore", r"Mean of empty slice")
 
 # =====================================================================
-# DIRECTORY CONFIGURATIONS AND PARAMETERS
-# =====================================================================
-CSV_FILE = '/mnt/SSD_SATA/dataset/dataset_index.csv'
-SOURCE_FOLDER = "/mnt/SSD_SATA/dataset/Tensores_Treino/"
+CSV_FILE = '/mnt/ssd_sata/dataset/dataset_index.csv'
+SOURCE_FOLDER = "dataset/Tensors/" 
 OUTPUT = "dataset/dataset_ml.csv"
 
 BAND_NAMES = ['B2', 'B3', 'B4', 'B8', 'B5', 'B6', 'B7', 'B8A', 'B11', 'B12']
@@ -21,37 +18,51 @@ BAND_NAMES = ['B2', 'B3', 'B4', 'B8', 'B5', 'B6', 'B7', 'B8A', 'B11', 'B12']
 def extract_tabular_features(base_name):
     torch.set_num_threads(1)
     
+    tensor_path = os.path.join(SOURCE_FOLDER, f"{base_name}_pse.npy")
+    
+    if not os.path.exists(tensor_path):
+        return None 
+
     try:
-        tensor = load_and_clean_tensor(base_name)
-        if tensor is None:
-            return None
+        tensor = np.load(tensor_path).astype(np.float32)
         
-        farm_mean_series = np.nanmean(tensor, axis=2)
+        farm_mean_series = np.nanmean(tensor, axis=2) 
         
         features = {'image_name': base_name}
         
         for c, band_name in enumerate(BAND_NAMES):
             band_series = farm_mean_series[:, c]
             
-            band_series = np.nan_to_num(band_series, nan=0.0)
+            valid_mask = ~np.isnan(band_series)
+            valid_series = band_series[valid_mask]
             
-            features[f'{band_name}_max'] = np.max(band_series)
-            features[f'{band_name}_min'] = np.min(band_series)
-            features[f'{band_name}_median'] = np.median(band_series)
-            features[f'{band_name}_mean'] = np.mean(band_series)
-            features[f'{band_name}_std'] = np.std(band_series)
+            if len(valid_series) == 0:
+                features.update({
+                    f'{band_name}_max': 0.0, f'{band_name}_min': 0.0,
+                    f'{band_name}_median': 0.0, f'{band_name}_mean': 0.0,
+                    f'{band_name}_std': 0.0, f'{band_name}_slope_up': 0.0,
+                    f'{band_name}_slope_down': 0.0, f'{band_name}_amplitude': 0.0,
+                    f'{band_name}_argmax': 0
+                })
+                continue
+                
+            features[f'{band_name}_max'] = np.max(valid_series)
+            features[f'{band_name}_min'] = np.min(valid_series)
+            features[f'{band_name}_median'] = np.median(valid_series)
+            features[f'{band_name}_mean'] = np.mean(valid_series)
+            features[f'{band_name}_std'] = np.std(valid_series)
             
-            diffs = np.diff(band_series)
+            diffs = np.diff(valid_series)
             features[f'{band_name}_slope_up'] = np.sum(diffs[diffs > 0])
             features[f'{band_name}_slope_down'] = np.sum(np.abs(diffs[diffs < 0]))
             
-            features[f'{band_name}_amplitude'] = np.max(band_series) - np.min(band_series)
-            features[f'{band_name}_argmax'] = np.argmax(band_series)
+            features[f'{band_name}_amplitude'] = np.max(valid_series) - np.min(valid_series)
+            features[f'{band_name}_argmax'] = np.argmax(valid_series)
             
         return features
         
     except Exception as e:
-        print(f"Error in {base_name}: {str(e)}")
+        print(f"Erro em {base_name}: {str(e)}")
         return None
 
 

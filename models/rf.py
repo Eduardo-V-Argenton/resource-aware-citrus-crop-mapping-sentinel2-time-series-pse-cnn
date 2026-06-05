@@ -11,14 +11,15 @@ from sklearn.model_selection import GroupShuffleSplit
 import joblib
 import time
 import tracemalloc
+from codecarbon import EmissionsTracker
 
-INDEX_FILE = '/mnt/SSD_SATA/dataset/dataset_index.csv'
+INDEX_FILE = '/mnt/ssd_sata/dataset/dataset_index.csv'
 ML_FEATURES_FILE = 'dataset/dataset_ml_bands_indexes.csv' 
 # ML_FEATURES_FILE = 'dataset/dataset_ml.csv' 
 TARGET_COLUMN = "label_ia"
 
-BASE_RESULTS_DIR = "paper_results_rf_bands_indexes"
-# BASE_RESULTS_DIR = "paper_results_rf"
+BASE_RESULTS_DIR = "results/rf_band_indexes"
+# BASE_RESULTS_DIR = "results/rf"
 os.makedirs(BASE_RESULTS_DIR, exist_ok=True)
 os.makedirs(os.path.join(BASE_RESULTS_DIR, "models"), exist_ok=True)
 os.makedirs(os.path.join(BASE_RESULTS_DIR, "classification_reports"), exist_ok=True)
@@ -60,16 +61,16 @@ print(f"ID sample space reduction: {reduction:.1f}%")
 print(f"Total Features available for Random Forest: {len(feature_cols)}\n")
 
 test_years = [2024, 2023]
-seeds = [42, 43, 44, 45]
+seeds = [42, 43, 44]
 
 general_results = {}
 
 for test_year in test_years:
     print(f"\n{'=' * 80}\n UNSEEN TEST: YEAR {test_year} \n{'=' * 80}")
 
-    df_test_idx = df_merged[df_merged["ano"] == test_year].copy()
+    df_test_idx = df_merged[df_merged["year"] == test_year].copy()
     val_years = [test_year - 1, test_year - 2]
-    df_rest = df_merged[~df_merged["ano"].isin([test_year])].copy()
+    df_rest = df_merged[~df_merged["year"].isin([test_year])].copy()
 
     for seed in seeds:
         print(f"\n{'-' * 50}\n RUN: Seed {seed} (Random Forest)\n{'-' * 50}")
@@ -80,8 +81,8 @@ for test_year in test_years:
         df_train_pool = df_rest.iloc[train_idx].copy()
         df_val_pool = df_rest.iloc[val_idx].copy()
         
-        df_train = df_train_pool[~df_train_pool["ano"].isin(val_years)].copy()
-        df_val = df_val_pool[df_val_pool["ano"].isin(val_years)].copy()
+        df_train = df_train_pool[~df_train_pool["year"].isin(val_years)].copy()
+        df_val = df_val_pool[df_val_pool["year"].isin(val_years)].copy()
 
         # Preparing X and y matrices
         X_train = df_train[feature_cols].values
@@ -97,6 +98,13 @@ for test_year in test_years:
         
         tracemalloc.start()
         start_train = time.perf_counter()
+        tracker = EmissionsTracker(
+            project_name=f"crop_y{test_year}_s{seed}",
+            output_dir=BASE_RESULTS_DIR,
+            log_level="error"
+        )
+        
+        tracker.start()
         
         model = RandomForestClassifier(
             n_estimators=500, 
@@ -112,24 +120,18 @@ for test_year in test_years:
         tracemalloc.stop()
         peak_memory_mb = peak_mem / (1024 * 1024)
         
+        emissions_kg_co2 = tracker.stop()
+        energy_kwh = tracker.final_emissions_data.energy_consumed
+        
         probs_val = model.predict_proba(X_val)[:, 1]
         start_infer = time.perf_counter()
         probs_test = model.predict_proba(X_test)[:, 1]
         infer_time = time.perf_counter() - start_infer
 
+        total_test_samples = len(X_test)
+        infer_time_per_1k = (infer_time / total_test_samples) * 1000
+        
         precisions, recalls, thresholds = precision_recall_curve(y_val, probs_val)
-        # recalls = recalls[:-1]
-        # precisions = precisions[:-1]
-        # mask = recalls >= 0.75
-        # if np.any(mask):
-        #     f1_scores = 2 * (precisions[mask] * recalls[mask]) / (precisions[mask] + recalls[mask] + 1e-8)
-        #     best_index = np.argmax(f1_scores)
-        #     optimal_threshold = thresholds[mask][best_index]
-        # else:
-        #     best_index = np.argmax(recalls)
-        #     optimal_threshold = thresholds[best_index]
-
-        # print(f">> Optimized Threshold on Validation: {optimal_threshold:.4f}")
         f1_scores = 2 * (precisions * recalls) / (precisions + recalls + 1e-8)
         best_idx = np.argmax(f1_scores)
         optimal_threshold = thresholds[best_idx]
@@ -197,30 +199,27 @@ for test_year in test_years:
         general_results[col_key]["Recall 1"] = round(recall[1], 2)
         general_results[col_key]["Precision 0"] = round(precision[0], 2)
         general_results[col_key]["Precision 1"] = round(precision[1], 2)
+        general_results[col_key]["F1 0"] = round(f1[0],2)
+        general_results[col_key]["F1 1"] = round(f1[1],2)
         general_results[col_key]["Train Time (s)"] = round(train_time, 2)
         general_results[col_key]["Infer Time (s)"] = round(infer_time, 4)
+        general_results[col_key]["Infer Time / 1k (s)"] = round(infer_time_per_1k, 4)
         general_results[col_key]["Peak Mem (MB)"] = round(peak_memory_mb, 2)
+        general_results[col_key]["Energy (kWh)"] = round(energy_kwh, 6)
+        general_results[col_key]["Emissions (kgCO2eq)"] = round(emissions_kg_co2, 6)
 
-# =====================================================================
-# FINAL COMPILED TABLE GENERATION
-# =====================================================================
-print("\n" + "=" * 80)
-print(" FINAL RESULTS TABLE (FINE ANALYSIS AND GENERAL METRICS)")
-print("=" * 80)
+        df_table = pd.DataFrame(general_results)
+        df_table = df_table[sorted(df_table.columns)]
 
-df_table = pd.DataFrame(general_results)
-df_table = df_table[sorted(df_table.columns)]
+        ordered_crops = sorted([c for c in df_test_idx["crop"].dropna().unique()])
+        row_order = ordered_crops + [
+            "Recall 0", "Recall 1", "Precision 0", "Precision 1", "F1 0", "F1 1",
+            "Infer Time / 1k (s)", "Energy (kWh)", "Emissions (kgCO2eq)",
+        ]
 
-ordered_crops = sorted([c for c in df_merged["crop"].dropna().unique()])
-row_order = ordered_crops + [
-    "Recall 0", "Recall 1", "Precision 0", "Precision 1", 
-    "Train Time (s)", "Infer Time (s)", "Peak Mem (MB)"
-]
+        df_table = df_table.reindex(row_order)
+        df_table.columns.names = ["Year", "Seed"]
 
-df_table = df_table.reindex(row_order)
-df_table.columns.names = ["Year", "Seed"]
-
-print(df_table.to_string())
-final_table_path = os.path.join(BASE_RESULTS_DIR, "consolidated_paper_table.csv")
-df_table.to_csv(final_table_path)
-print(f"\nAll artifacts were successfully saved in the folder: {BASE_RESULTS_DIR}/")
+        print(df_table.to_string())
+        final_table_path = os.path.join(BASE_RESULTS_DIR, "consolidated_paper_table.csv")
+        df_table.to_csv(final_table_path)

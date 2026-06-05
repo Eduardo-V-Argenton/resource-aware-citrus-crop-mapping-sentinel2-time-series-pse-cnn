@@ -213,6 +213,8 @@ dataset/dataset_index.csv
 eda/area_plantada.csv
 *.npy
 pyrightconfig.json
-dataset/*.csv
 *.joblib
 .$*.bkp
+eda/RG2017_rgi_20180911
+eda/regioes_geografica*
+dataset/SP*

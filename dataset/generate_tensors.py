@@ -12,9 +12,11 @@ warnings.filterwarnings("ignore", r"Mean of empty slice")
 # =====================================================================
 # DIRECTORY CONFIGURATIONS AND PARAMETERS
 # =====================================================================
-CSV_FILE = '/mnt/SSD_SATA/dataset/dataset_index.csv'
-SOURCE_FOLDER = "/mnt/SSD_SATA/dataset/Tensores_Treino/"
+CSV_FILE = '/mnt/ssd_sata/dataset/dataset_index.csv'
+SOURCE_FOLDER = "/home/eduardo/Desktop/dataset/Tensors/"
 DESTINATION_FOLDER = "dataset/Tensors/"
+
+QUALITY_LOG = "dataset/quality_report.csv" 
 
 os.makedirs(DESTINATION_FOLDER, exist_ok=True)
 
@@ -56,23 +58,32 @@ def load_and_clean_tensor(base_name):
     flat_base = base_tensor[:, :, farm_mask]
     t, c, p = flat_base.shape
     if p < 32:
-        return None
+        return None, None
         
-    # Forward gap-filling
+    # =================================================================
+    # CÁLCULO DE DADOS ARTIFICIAIS ADICIONADO AQUI
+    # =================================================================
     nans_mask = np.isnan(flat_base) | (flat_base == 0.0)
+    
+    total_valores = flat_base.size
+    valores_artificiais = np.sum(nans_mask)
+    perc_artificial = (valores_artificiais / total_valores) * 100.0
+    
+    # Forward gap-filling
     for time_step in range(1, t):
         flat_base[time_step] = np.where(
             nans_mask[time_step], flat_base[time_step - 1], flat_base[time_step]
         )
 
     # Backward gap-filling
-    nans_mask_bwd = np.isnan(flat_base) | (flat_base == 0.0)
-    for time_step in range(t - 2, -1, -1):
-        flat_base[time_step] = np.where(
-            nans_mask_bwd[time_step], flat_base[time_step + 1], flat_base[time_step]
-        )
+    # nans_mask_bwd = np.isnan(flat_base) | (flat_base == 0.0)
+    # for time_step in range(t - 2, -1, -1):
+    #     flat_base[time_step] = np.where(
+    #         nans_mask_bwd[time_step], flat_base[time_step + 1], flat_base[time_step]
+    #     )
 
-    return flat_base
+    # Agora retorna também a porcentagem
+    return flat_base, perc_artificial
 
 
 def generate_final_dataset(base_name):
@@ -80,19 +91,20 @@ def generate_final_dataset(base_name):
     output_path = os.path.join(DESTINATION_FOLDER, f"{base_name}_pse.npy")
 
     if os.path.exists(output_path):
-        return True
+        return [0, base_name, 0.0]
 
     try:
-        tensor = load_and_clean_tensor(base_name)
+        tensor, perc_artificial = load_and_clean_tensor(base_name)
         if tensor is None:
-            return None
+            return [2, base_name, 0.0]
 
         final_tensor = np.nan_to_num(tensor, nan=0.0).astype(np.float16)
 
         np.save(output_path, final_tensor)
-        return True
+        return [1, base_name, perc_artificial]
+        
     except Exception as e:
-        return f"Error in {base_name}: {str(e)}"
+        return [-1, f"Error in {base_name}: {str(e)}", 0.0]
 
 
 if __name__ == "__main__":
@@ -103,6 +115,10 @@ if __name__ == "__main__":
 
     print("\n--- Generating Final Dataset (Cleaning and Gap Filling) ---")
     
+    # Inicializa o arquivo de relatório de qualidade com cabeçalho
+    with open(QUALITY_LOG, "w", encoding="utf-8") as f:
+        f.write("base_name,perc_artificial\n")
+    
     with ProcessPoolExecutor(max_workers=cores) as executor:
         futures = {
             executor.submit(generate_final_dataset, name): name
@@ -110,8 +126,15 @@ if __name__ == "__main__":
         }
 
         for future in tqdm(as_completed(futures), total=len(futures)):
-            result = future.result()
-            if isinstance(result, str):
-                print(result)
+            status, info, perc = future.result()
+            
+            if status == -1:
+                # Ocorreu um erro
+                print(info)
+            elif status == 1:
+                # Sucesso: Salva a porcentagem no arquivo de log
+                with open(QUALITY_LOG, "a", encoding="utf-8") as f:
+                    f.write(f"{info},{perc:.2f}\n")
 
     print("\nDirect processing completed! Files ready for PyTorch.")
+    print(f"Log de qualidade salvo em: {QUALITY_LOG}")

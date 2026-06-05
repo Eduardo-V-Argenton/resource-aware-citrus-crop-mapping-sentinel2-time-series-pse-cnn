@@ -17,13 +17,14 @@ from sklearn.metrics import (
 from sklearn.model_selection import GroupShuffleSplit
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
+from codecarbon import EmissionsTracker
 
 torch.set_float32_matmul_precision('high')
 
 # =====================================================================
 # INITIAL CONFIGURATIONS AND DIRECTORY CREATION FOR THE PAPER
 # =====================================================================
-INDEX_FILE = '/mnt/SSD_SATA/dataset/dataset_index.csv'
+INDEX_FILE = '/mnt/ssd_sata/dataset/dataset_index.csv'
 TENSORS_FOLDER = "dataset/Tensors/"  
 TARGET_COLUMN = "label_ia"
 INPUT_CHANNELS = 10
@@ -33,7 +34,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"PyTorch configured to use: {device}")
 
 # Creating directory structure to save paper artifacts
-BASE_RESULTS_DIR = "results/recall_free/paper_results_pse_transformer"
+BASE_RESULTS_DIR = "results/pse_transformer"
 os.makedirs(BASE_RESULTS_DIR, exist_ok=True)
 os.makedirs(os.path.join(BASE_RESULTS_DIR, "models"), exist_ok=True)
 os.makedirs(os.path.join(BASE_RESULTS_DIR, "loss_history"), exist_ok=True)
@@ -167,25 +168,30 @@ def predict(loader, tta_steps=5):
     model.eval()
     y_true_final = []
     accumulated_probs = None
+    names_final = []
     
     with torch.no_grad():
         for step in range(tta_steps):
             y_true_step, probs_step = [], []
-            for batch_x, batch_y, _ in loader:
+            names_step = []
+            
+            for batch_x, batch_y, batch_names in loader:
                 batch_probs = torch.sigmoid(model(batch_x.to(device))).cpu().numpy()
                 probs_step.extend(batch_probs)
                 
                 if step == 0:
                     y_true_step.extend(batch_y.numpy())
+                    names_step.extend(batch_names)
             
             if step == 0:
                 accumulated_probs = np.array(probs_step)
                 y_true_final = np.array(y_true_step)
+                names_final = names_step
             else:
                 accumulated_probs += np.array(probs_step)
                 
     final_probs = accumulated_probs / tta_steps
-    return y_true_final.flatten(), final_probs.flatten()
+    return y_true_final.flatten(), final_probs.flatten(), names_final
 
 
 def extract_coordinates(id_str):
@@ -227,7 +233,7 @@ existing_files = set([
 df_index = df_index[df_index["name"].isin(existing_files)].copy()
 
 test_years = [2024,2023]
-seeds = [42, 43, 44, 45]
+seeds = [42, 43, 44]
 
 BATCH_SIZE = 128
 EPOCHS = 100
@@ -238,10 +244,10 @@ general_results = {}
 for test_year in test_years:
     print(f"\n{'=' * 80}\n UNSEEN TEST: YEAR {test_year} \n{'=' * 80}")
 
-    df_test_idx = df_index[df_index["ano"] == test_year].copy()
+    df_test_idx = df_index[df_index["year"] == test_year].copy()
     val_years = [test_year - 1, test_year - 2]
     
-    df_rest = df_index[~df_index["ano"].isin([test_year])].copy()
+    df_rest = df_index[~df_index["year"].isin([test_year])].copy()
 
     for seed in seeds:
         print(f"\n{'-' * 50}\n RUN: Seed {seed}\n{'-' * 50}")
@@ -260,8 +266,8 @@ for test_year in test_years:
         df_train_pool = df_rest.iloc[train_idx].copy()
         df_val_pool = df_rest.iloc[val_idx].copy()
         
-        df_train = df_train_pool[~df_train_pool["ano"].isin(val_years)].copy()
-        df_val = df_val_pool[df_val_pool["ano"].isin(val_years)].copy()
+        df_train = df_train_pool[~df_train_pool["year"].isin(val_years)].copy()
+        df_val = df_val_pool[df_val_pool["year"].isin(val_years)].copy()
         df_train = df_train.sample(frac=1.0, random_state=seed).reset_index(drop=True)
         df_val = df_val.sample(frac=1.0, random_state=seed).reset_index(drop=True)
 
@@ -282,7 +288,6 @@ for test_year in test_years:
         val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=2, pin_memory=True)
         test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=2, pin_memory=True)
 
-        # Alteração: Instanciando o novo modelo PSE_TRANSFORMER
         model = PSE_TRANSFORMER(in_channels=INPUT_CHANNELS).to(device)
 
         num_negatives = len(df_train[df_train[TARGET_COLUMN] == 0])
@@ -307,6 +312,14 @@ for test_year in test_years:
         training_history = {"epoch": [], "train_loss": [], "val_loss": []}
         
         batch_tracking = []
+        
+        tracker = EmissionsTracker(
+            project_name=f"crop_y{test_year}_s{seed}",
+            output_dir=BASE_RESULTS_DIR,
+            log_level="error"
+        )
+        
+        tracker.start()
         torch.cuda.reset_peak_memory_stats()
         torch.cuda.synchronize()
         start_train_event = torch.cuda.Event(enable_timing=True)
@@ -397,20 +410,25 @@ for test_year in test_years:
         df_history = pd.DataFrame(training_history)
         df_history.to_csv(os.path.join(BASE_RESULTS_DIR, "loss_history", f"loss_year_{test_year}_seed_{seed}.csv"), index=False)
 
-        y_true_val, probs_val = predict(val_loader)
+        y_true_val, probs_val,_ = predict(val_loader)
         torch.cuda.synchronize()
         start_infer_event = torch.cuda.Event(enable_timing=True)
         end_infer_event = torch.cuda.Event(enable_timing=True)
         
         start_infer_event.record()
-        y_true_test, probs_test = predict(test_loader)
+        y_true_test, probs_test, names_test = predict(test_loader)
         end_infer_event.record()
         
         torch.cuda.synchronize()
         infer_time_sec = start_infer_event.elapsed_time(end_infer_event) / 1000.0
-
-        precisions, recalls, thresholds = precision_recall_curve(y_true_val, probs_val)
         
+        emissions_kg_co2 = tracker.stop()
+        energy_kwh = tracker.final_emissions_data.energy_consumed
+
+        total_test_samples = len(test_loader.dataset)
+        infer_time_per_1k = (infer_time_sec / total_test_samples) * 1000
+        
+        precisions, recalls, thresholds = precision_recall_curve(y_true_val, probs_val)
         f1_scores = 2 * (precisions * recalls) / (precisions + recalls + 1e-8)
         best_idx = np.argmax(f1_scores)
         optimal_threshold = thresholds[best_idx]
@@ -432,6 +450,7 @@ for test_year in test_years:
 
         # 4. Save raw predictions (Ground Truth vs Real Probability vs Final Prediction)
         df_raw_preds = pd.DataFrame({
+            "id_sample": names_test,
             "y_true": y_true_test,
             "model_probability": probs_test,
             "final_threshold_prediction": preds_test
@@ -472,35 +491,32 @@ for test_year in test_years:
         general_results[col_key]["Recall 1"] = round(recall[1], 2)
         general_results[col_key]["Precision 0"] = round(precision[0], 2)
         general_results[col_key]["Precision 1"] = round(precision[1], 2)
+        general_results[col_key]["F1 0"] = round(f1[0],2)
+        general_results[col_key]["F1 1"] = round(f1[1],2)
         general_results[col_key]["Train Time (s)"] = round(train_time_sec, 2)
         general_results[col_key]["Infer Time (s)"] = round(infer_time_sec, 4)
+        general_results[col_key]["Infer Time / 1k (s)"] = round(infer_time_per_1k, 4)
+        general_results[col_key]["Energy (kWh)"] = round(energy_kwh, 6)
+        general_results[col_key]["Emissions (kgCO2eq)"] = round(emissions_kg_co2, 6)
         general_results[col_key]["Peak VRAM (MB)"] = round(peak_vram_mb, 2)
         general_results[col_key]["TN (True Neg)"] = tn
         general_results[col_key]["FP (False Pos)"] = fp
         general_results[col_key]["FN (False Neg)"] = fn
         general_results[col_key]["TP (True Pos)"] = tp
 
-# =====================================================================
-# FINAL COMPILED TABLE GENERATION
-# =====================================================================
-print("\n" + "=" * 80)
-print(" FINAL RESULTS TABLE (FINE ANALYSIS AND GENERAL METRICS)")
-print("=" * 80)
+        df_table = pd.DataFrame(general_results)
+        df_table = df_table[sorted(df_table.columns)]
 
-df_table = pd.DataFrame(general_results)
-df_table = df_table[sorted(df_table.columns)]
+        ordered_crops = sorted([c for c in df_test_idx["crop"].dropna().unique()])
+        row_order = ordered_crops + [
+            "Recall 0", "Recall 1", "Precision 0", "Precision 1", "F1 0", "F1 1",
+            "Infer Time / 1k (s)", "Peak VRAM (MB)", "Energy (kWh)", "Emissions (kgCO2eq)",
+            "TN (True Neg)", "FP (False Pos)", "FN (False Neg)", "TP (True Pos)"
+        ]
 
-ordered_crops = sorted([c for c in df_index["crop"].dropna().unique()])
-row_order = ordered_crops + [
-    "Recall 0", "Recall 1", "Precision 0", "Precision 1",
-    "Train Time (s)", "Infer Time (s)", "Peak VRAM (MB)",
-    "TN (True Neg)", "FP (False Pos)", "FN (False Neg)", "TP (True Pos)"
-]
+        df_table = df_table.reindex(row_order)
+        df_table.columns.names = ["Year", "Seed"]
 
-df_table = df_table.reindex(row_order)
-df_table.columns.names = ["Year", "Seed"]
-
-print(df_table.to_string())
-final_table_path = os.path.join(BASE_RESULTS_DIR, "consolidated_paper_table.csv")
-df_table.to_csv(final_table_path)
-print(f"\nAll artifacts were successfully saved in the folder: {BASE_RESULTS_DIR}/")
+        print(df_table.to_string())
+        final_table_path = os.path.join(BASE_RESULTS_DIR, "consolidated_paper_table.csv")
+        df_table.to_csv(final_table_path)
