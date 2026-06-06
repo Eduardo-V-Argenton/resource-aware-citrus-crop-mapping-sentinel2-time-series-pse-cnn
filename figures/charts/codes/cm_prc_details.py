@@ -10,7 +10,7 @@ from sklearn.metrics import precision_recall_curve, auc
 # =====================================================================
 # 1. CARREGAMENTO DA MATRIZ DE CONFUSÃO (MÉDIA)
 # =====================================================================
-table_path = os.path.join("results", "recall_free", "paper_results", "consolidated_paper_table.csv")
+table_path = os.path.join("results", "pse_cnn", "consolidated_paper_table.csv")
 
 try:
     df_table = pd.read_csv(table_path, index_col=0, header=[0, 1])
@@ -25,7 +25,7 @@ except Exception as e:
 # =====================================================================
 # 2. CURVA PRECISION-RECALL (UNIFICADA E SUAVIZADA)
 # =====================================================================
-folder_path = os.path.join("results", "recall_free", "paper_results", "raw_predictions")
+folder_path = os.path.join("results", "pse_cnn", "raw_predictions")
 csv_files = glob.glob(os.path.join(folder_path, "predictions_year_*.csv"))
 
 all_y_true, all_probs = [], []

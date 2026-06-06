@@ -163,35 +163,28 @@ class PSE_TRANSFORMER(nn.Module):
         return out
 
 
-def predict(loader, tta_steps=5):
-    """Prediction function with Test-Time Augmentation (TTA)"""
+def predict(loader):
     model.eval()
     y_true_final = []
     accumulated_probs = None
     names_final = []
     
     with torch.no_grad():
-        for step in range(tta_steps):
-            y_true_step, probs_step = [], []
-            names_step = []
+        y_true, probs = [], []
+        names_step = []
+        
+        for batch_x, batch_y, batch_names in loader:
+            batch_probs = torch.sigmoid(model(batch_x.to(device))).cpu().numpy()
+            probs.extend(batch_probs)
             
-            for batch_x, batch_y, batch_names in loader:
-                batch_probs = torch.sigmoid(model(batch_x.to(device))).cpu().numpy()
-                probs_step.extend(batch_probs)
+            y_true.extend(batch_y.numpy())
+            names_step.extend(batch_names)
+        
+        accumulated_probs = np.array(probs)
+        y_true_final = np.array(y_true)
+        names_final = names_step
                 
-                if step == 0:
-                    y_true_step.extend(batch_y.numpy())
-                    names_step.extend(batch_names)
-            
-            if step == 0:
-                accumulated_probs = np.array(probs_step)
-                y_true_final = np.array(y_true_step)
-                names_final = names_step
-            else:
-                accumulated_probs += np.array(probs_step)
-                
-    final_probs = accumulated_probs / tta_steps
-    return y_true_final.flatten(), final_probs.flatten(), names_final
+    return y_true_final.flatten(), accumulated_probs.flatten(), names_final
 
 
 def extract_coordinates(id_str):
@@ -510,6 +503,7 @@ for test_year in test_years:
         ordered_crops = sorted([c for c in df_test_idx["crop"].dropna().unique()])
         row_order = ordered_crops + [
             "Recall 0", "Recall 1", "Precision 0", "Precision 1", "F1 0", "F1 1",
+            "Train Time (s)", "Infer Time (s)",
             "Infer Time / 1k (s)", "Peak VRAM (MB)", "Energy (kWh)", "Emissions (kgCO2eq)",
             "TN (True Neg)", "FP (False Pos)", "FN (False Neg)", "TP (True Pos)"
         ]

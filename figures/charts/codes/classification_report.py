@@ -10,13 +10,13 @@ import matplotlib.patches as mpatches
 # CONFIGURAÇÕES ACADÊMICAS
 # =====================================================================
 results_config = {
-    "paper_results": "PSE-CNN (Proposed)",
-    "paper_results_pse_tae": "PSE-TAE",
-    "paper_results_pse_transformer": "PSE-Transformer",
-    "paper_results_rf": "RF (Bands)",
-    "paper_results_rf_bands_indexes": "RF (Bands+Idx)",
-    "paper_results_xgb": "XGB (Bands)",
-    "paper_results_xgb_bands_indexes": "XGB (Bands+Idx)"
+    "pse_cnn": "PSE-CNN (Proposed)",
+    "pse_tae": "PSE-TAE",
+    "pse_transformer": "PSE-Transformer",
+    "rf": "RF (Bands)",
+    "rf_bands_indexes": "RF (Bands+Idx)",
+    "xgb": "XGB (Bands)",
+    "xgb_bands_indexes": "XGB (Bands+Idx)"
 }
 
 styles = {
@@ -35,7 +35,7 @@ styles = {
 data_list = []
 
 for folder_path, display_name in results_config.items():
-    pattern = os.path.join("results", "recall_free", folder_path, "classification_reports", "test_year_*.csv")
+    pattern = os.path.join("results", folder_path, "classification_reports", "test_year_*.csv")
     files = glob.glob(pattern)
 
     for file_path in files:

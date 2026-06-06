@@ -8,8 +8,8 @@ from tqdm import tqdm
 # =====================================================================
 # CONFIGURATIONS
 # =====================================================================
-INDEX_FILE = '/mnt/SSD_SATA/dataset/dataset_index.csv'
-BATCH_TRACKING_DIR = 'results/recall_free/paper_results/batch_tracking/' 
+INDEX_FILE = '/mnt/ssd_sata/dataset/dataset_index.csv'
+BATCH_TRACKING_DIR = 'results/pse_cnn/batch_tracking/' 
 TARGET_COLUMN = 'label_ia'
 
 print("Loading dataset index to map image names to classes...")

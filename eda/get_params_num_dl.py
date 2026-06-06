@@ -55,7 +55,7 @@ class PhenologyPSE(nn.Module):
         return out
         
 model = PhenologyPSE(in_channels=10) 
-model.load_state_dict(torch.load("results/recall_free/paper_results/models/weights_year_2023_seed_42.pth"))
+model.load_state_dict(torch.load("results/pse_cnn/models/weights_year_2023_seed_42.pth"))
 
 total_params = sum(p.numel() for p in model.parameters())
 trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)

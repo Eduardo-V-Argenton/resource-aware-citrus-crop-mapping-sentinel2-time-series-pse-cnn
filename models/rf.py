@@ -18,7 +18,7 @@ ML_FEATURES_FILE = 'dataset/dataset_ml_bands_indexes.csv'
 # ML_FEATURES_FILE = 'dataset/dataset_ml.csv' 
 TARGET_COLUMN = "label_ia"
 
-BASE_RESULTS_DIR = "results/rf_band_indexes"
+BASE_RESULTS_DIR = "results/rf_bands_indexes"
 # BASE_RESULTS_DIR = "results/rf"
 os.makedirs(BASE_RESULTS_DIR, exist_ok=True)
 os.makedirs(os.path.join(BASE_RESULTS_DIR, "models"), exist_ok=True)
@@ -214,7 +214,8 @@ for test_year in test_years:
         ordered_crops = sorted([c for c in df_test_idx["crop"].dropna().unique()])
         row_order = ordered_crops + [
             "Recall 0", "Recall 1", "Precision 0", "Precision 1", "F1 0", "F1 1",
-            "Infer Time / 1k (s)", "Energy (kWh)", "Emissions (kgCO2eq)",
+            "Train Time (s)", "Infer Time (s)",
+            "Infer Time / 1k (s)", "Peak Mem (MB)", "Energy (kWh)", "Emissions (kgCO2eq)",
         ]
 
         df_table = df_table.reindex(row_order)
